@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<div id="status" class="status">Reading page…</div>
+<div id="repost" class="repost" hidden>
+  <strong>Possible repost of:</strong>
+  <ul id="repost-list"></ul>
+  <div class="row"><button id="add-anyway">Add anyway</button><button id="skip" class="secondary">Skip</button></div>
+</div>
+<form id="form" hidden autocomplete="off">
+  <label data-f="company">Company<input name="company"></label>
+  <label data-f="title">Title<input name="title"></label>
+  <label data-f="location">Location<input name="location"></label>
+  <label data-f="url">URL<input name="url"></label>
+  <div class="two">
+    <label data-f="source">Source<input name="source"></label>
+    <label data-f="job_id">Job ID<input name="job_id"></label>
+  </div>
+  <label data-f="posted_date">Posted<input name="posted_date"></label>
+  <label data-f="jd_text">Job description <span id="jd-len"></span><textarea name="jd_text" rows="4"></textarea></label>
+  <button id="save" type="submit">Log application</button>
+</form>
+<div id="queue" class="queue" hidden></div>
+<script src="popup.js"></script>
+</body>
+</html>

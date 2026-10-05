@@ -1,0 +1,13 @@
+# Application data never belongs in this repo.
+jobtracker-data/
+data/
+*.csv
+jd/
+trash/
+config.local.json
+
+# Dev tooling
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/

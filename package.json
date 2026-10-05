@@ -1,0 +1,7 @@
+{
+  "name": "jobtracker-tests",
+  "private": true,
+  "description": "Dev-only: runs extractor tests under Node. Not needed to use the app or extension.",
+  "scripts": { "test": "node --test tests/*.test.js" },
+  "devDependencies": { "jsdom": "^25.0.0" }
+}

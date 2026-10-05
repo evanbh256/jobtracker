@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Job Tracker</h1>
+  <span id="count"></span>
+  <span id="err" class="err" hidden></span>
+</header>
+<main id="board"></main>
+
+<aside id="panel" hidden>
+  <div class="panel-head">
+    <strong id="p-heading"></strong>
+    <button id="p-close" title="Close (Esc)">&times;</button>
+  </div>
+  <form id="p-form" autocomplete="off"></form>
+  <div class="panel-actions">
+    <a id="p-link" target="_blank" rel="noopener noreferrer">Open posting</a>
+    <button id="p-delete" class="danger">Delete</button>
+  </div>
+  <h3>Job description</h3>
+  <pre id="p-jd"></pre>
+</aside>
+
+<div id="toast" hidden><span id="toast-msg"></span> <button id="toast-undo">Undo</button></div>
+<script src="app.js"></script>
+</body>
+</html>
