@@ -60,6 +60,35 @@ waiting. Captures are never dropped.
 On the board: drag cards between columns, click a card to edit any field and read the
 saved job description, **Delete** with a 10-second **Undo**.
 
+### Possible reposts
+
+When you capture something that matches an existing entry, the popup shows
+**"Possible repost of: …"** with the reason, and you pick **Add anyway** or **Skip**.
+Nothing is ever blocked. A match is any of:
+
+- same job ID (and same company or same platform),
+- same canonical URL,
+- same company and a near-identical title, ignoring case, punctuation, company
+  suffixes (Inc, LLC, Corp…), and season/year/remote noise
+  ("Summer 2027", "(Remote)", "Internship" vs "Intern").
+
+Entries you add anyway carry a **possible repost** badge, and their panel names the
+original. If a queued (offline) capture turns out to be a possible repost, the popup
+asks you the next time it opens.
+
+### Auto-Ghosted
+
+Any card still in **Applied** 90 days after its applied date moves to **Ghosted** on
+its own (checked at startup and every time the board loads). Those cards carry an
+**auto-ghosted** badge, and `changes.csv` logs the move with actor `auto`, so you can
+tell them apart from moves you made. If you drag one back to Applied, it stays there.
+Change the window with `GHOST_AFTER_DAYS` in `app/jobtracker.py`.
+
+### Search
+
+The search box (press `/`) filters cards by company, title, location, notes, and the
+full job description text. Matching words are highlighted in the open JD.
+
 ## Where the data lives
 
 Default: `%USERPROFILE%\jobtracker-data` (e.g. `C:\Users\you\jobtracker-data`).

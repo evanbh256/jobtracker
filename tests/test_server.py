@@ -92,7 +92,7 @@ class ServerTest(unittest.TestCase):
         again = jobtracker.Store(self.data).list()
         self.assertEqual(again[0]["title"], nasty)
         # And an edit rewrites the file without corrupting neighbours.
-        self.capture(company="Other", title="Plain")
+        self.capture(company="Other", title="Plain", url="https://o.example/9", job_id="9")
         self.req("PATCH", f"/api/apps/{body['app']['id']}", {"notes": 'said "hi",\nok'})
         rows = self.csv_rows()
         self.assertEqual([r["company"] for r in rows], ['Smith, Jones & "Co"', "Other"])
@@ -100,7 +100,7 @@ class ServerTest(unittest.TestCase):
 
     def test_queued_capture_keeps_its_capture_date(self):
         self.assertEqual(self.capture(date_applied="2026-09-30")[1]["app"]["date_applied"], "2026-09-30")
-        self.assertEqual(self.capture(date_applied="../../x")[1]["app"]["date_applied"], "2026-10-05")
+        self.assertEqual(self.capture(date_applied="../../x", company="B", title="C", url="", job_id="")[1]["app"]["date_applied"], "2026-10-05")
 
     def test_unicode(self):
         self.capture(company="Société Générale", title="Stagiaire — Données 数据")
@@ -165,6 +165,101 @@ class ServerTest(unittest.TestCase):
         r = urllib.request.urlopen(f"http://127.0.0.1:{self.port}/")
         self.assertIn(b"Job Tracker", r.read())
         self.assertEqual(self.req("GET", "/../jobtracker.py")[0], 404)
+
+
+    # ---- v2: repost detection -------------------------------------------
+    def test_repost_by_job_id(self):
+        first = self.capture()[1]["app"]
+        code, body = self.capture(url="https://jobs.lever.co/acme/1?other", title="Different")
+        self.assertEqual(code, 200)
+        self.assertEqual(body["result"], "possible_repost")
+        self.assertEqual(body["matches"][0]["id"], first["id"])
+        self.assertEqual(body["matches"][0]["reason"], "same job ID")
+        self.assertEqual(len(self.csv_rows()), 1, "a flagged capture must not be written")
+
+    def test_repost_by_url(self):
+        self.capture(job_id="")
+        body = self.capture(job_id="", company="Totally Else", title="Other",
+                            url="HTTPS://www.jobs.lever.co/acme/1/")[1]
+        self.assertEqual(body["matches"][0]["reason"], "same URL")
+
+    def test_repost_by_fuzzy_company_title(self):
+        first = self.capture(company="Acme, Inc.", title="Software Engineer Intern - Summer 2026",
+                             url="https://a.example/1", job_id="")[1]["app"]
+        body = self.capture(company="ACME", title="Software Engineer Internship (Summer 2027)",
+                            url="https://b.example/2", job_id="")[1]
+        self.assertEqual(body["result"], "possible_repost")
+        self.assertEqual(body["matches"][0]["id"], first["id"])
+        self.assertEqual(body["matches"][0]["reason"], "same company and title")
+
+    def test_not_a_repost(self):
+        self.capture(company="Acme", title="Software Engineer Intern", url="https://a.example/1", job_id="")
+        for kw in [dict(company="Acme", title="Hardware Engineer Intern"),
+                   dict(company="Acme", title="Data Science Intern"),
+                   dict(company="Acmeville Bank", title="Software Engineer Intern")]:
+            body = self.capture(url="https://z.example/" + kw["title"], job_id="", **kw)[1]
+            self.assertEqual(body["result"], "added", kw)
+
+    def test_same_job_id_different_company_is_not_a_repost(self):
+        self.capture(company="Acme", job_id="12345", source="icims", url="https://a.example/1")
+        body = self.capture(company="Globex", title="Other", job_id="12345", source="workday",
+                            url="https://b.example/2")[1]
+        self.assertEqual(body["result"], "added")
+
+    def test_add_anyway_sets_repost_of(self):
+        first = self.capture()[1]["app"]
+        code, body = self.capture(force=True)
+        self.assertEqual(code, 201)
+        self.assertEqual(body["app"]["repost_of"], first["id"])
+        self.assertEqual(len(self.csv_rows()), 2)
+
+    def test_normalizers(self):
+        self.assertEqual(jobtracker.norm_company("The Acme Co."), "acme")
+        self.assertEqual(jobtracker.norm_company("AT&T Inc"), "at and t")
+        self.assertEqual(jobtracker.norm_title("SWE Intern (Summer 2027) - Remote"), "swe intern")
+        self.assertEqual(jobtracker.norm_title("C++ Developer Internship, Fall 2026"), "c++ developer intern")
+
+    # ---- v2: auto-Ghosted ------------------------------------------------
+    def test_auto_ghost_after_90_days(self):
+        old = self.capture(date_applied="2026-07-07")[1]["app"]       # exactly 90 days before 2026-10-05
+        young = self.capture(company="B", title="B", url="", job_id="", date_applied="2026-07-08")[1]["app"]
+        interviewing = self.capture(company="C", title="C", url="", job_id="", date_applied="2026-01-01")[1]["app"]
+        self.req("PATCH", f"/api/apps/{interviewing['id']}", {"status": "Interview"})
+        apps = {a["id"]: a for a in self.req("GET", "/api/apps")[1]["apps"]}
+        self.assertEqual(apps[old["id"]]["status"], "Ghosted")
+        self.assertEqual(apps[old["id"]]["status_changed_by"], "auto")
+        self.assertEqual(apps[young["id"]]["status"], "Applied")
+        self.assertEqual(apps[interviewing["id"]]["status"], "Interview")
+        with open(os.path.join(self.data, "changes.csv"), newline="", encoding="utf-8-sig") as f:
+            auto = [r for r in csv.DictReader(f) if r["actor"] == "auto"]
+        self.assertEqual([(r["app_id"], r["old"], r["new"]) for r in auto], [(old["id"], "Applied", "Ghosted")])
+        # Tomorrow the younger one goes too; the sweep is idempotent for the first.
+        self.clock.d = dt.date(2026, 10, 6)
+        self.store.sweep()
+        self.assertEqual(self.store.get(young["id"])["status"], "Ghosted")
+        with open(os.path.join(self.data, "changes.csv"), newline="", encoding="utf-8-sig") as f:
+            self.assertEqual(sum(r["actor"] == "auto" for r in csv.DictReader(f)), 2)
+
+    def test_user_move_back_to_applied_is_respected(self):
+        app = self.capture(date_applied="2026-01-01")[1]["app"]
+        self.req("GET", "/api/apps")
+        self.assertEqual(self.store.get(app["id"])["status"], "Ghosted")
+        self.req("PATCH", f"/api/apps/{app['id']}", {"status": "Applied"})
+        self.req("GET", "/api/apps")
+        self.assertEqual(self.store.get(app["id"])["status"], "Applied")
+
+    # ---- v2: search ------------------------------------------------------
+    def test_search_company_title_and_jd(self):
+        a = self.capture(company="Acme", title="Security Intern", url="", job_id="",
+                         jd_text="Work on Kubernetes hardening.")[1]["app"]
+        b = self.capture(company="Globex", title="Data Intern", url="", job_id="",
+                         jd_text="SQL, dashboards, kubernetes optional")[1]["app"]
+        q = lambda s: set(self.req("GET", "/api/search?q=" + urllib.request.quote(s))[1]["ids"])
+        self.assertEqual(q("acme"), {a["id"]})
+        self.assertEqual(q("intern"), {a["id"], b["id"]})
+        self.assertEqual(q("KUBERNETES"), {a["id"], b["id"]})
+        self.assertEqual(q("kubernetes dashboards"), {b["id"]})
+        self.assertEqual(q("nothing-matches"), set())
 
 
 if __name__ == "__main__":

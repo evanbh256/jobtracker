@@ -1,7 +1,8 @@
 "use strict";
 // Kanban board. All captured text is rendered via textContent (never innerHTML).
 
-const state = { apps: [], statuses: [], openId: null, lastDeleted: null, toastTimer: null };
+const state = { apps: [], statuses: [], openId: null, lastDeleted: null, toastTimer: null,
+  query: "", searchIds: null, searchTimer: null };
 const $ = (id) => document.getElementById(id);
 
 function el(tag, attrs = {}, ...kids) {
@@ -38,6 +39,7 @@ async function load() {
     state.apps = data.apps;
     state.statuses = data.statuses;
     showError("");
+    if (state.query) await runSearch();
   } catch (e) {
     showError("Can't reach the tracker server: " + e.message);
   }
@@ -45,7 +47,25 @@ async function load() {
 }
 
 function visibleApps() {
-  return state.apps;
+  if (!state.searchIds) return state.apps;
+  return state.apps.filter((a) => state.searchIds.has(a.id));
+}
+
+async function runSearch() {
+  const q = state.query.trim();
+  if (!q) { state.searchIds = null; return; }
+  const { ids } = await api("GET", "/api/search?q=" + encodeURIComponent(q));
+  if (q === state.query.trim()) state.searchIds = new Set(ids);
+}
+
+function onSearchInput() {
+  state.query = $("search").value;
+  clearTimeout(state.searchTimer);
+  state.searchTimer = setTimeout(async () => {
+    try { await runSearch(); showError(""); } catch (e) { showError("Search failed: " + e.message); }
+    render();
+    if (state.openId) loadJdText(state.openId);
+  }, 150);
 }
 
 function cardFor(app) {
@@ -57,7 +77,7 @@ function cardFor(app) {
       el("span", { title: "Date applied" }, app.date_applied)),
   );
   if (app.repost_of) card.append(el("span", { class: "badge", title: "Flagged as a possible repost when captured" }, "possible repost"));
-  if (app.status_changed_by === "auto") card.append(el("span", { class: "badge auto", title: "Moved automatically, not by you" }, "auto"));
+  if (app.status_changed_by === "auto") card.append(el("span", { class: "badge auto", title: "Moved here automatically after 90 days in Applied, not by you" }, "auto-ghosted"));
   card.addEventListener("click", () => openPanel(app.id));
   card.addEventListener("dragstart", (ev) => {
     ev.dataTransfer.setData("text/plain", app.id);
@@ -171,8 +191,16 @@ async function loadJdText(id) {
   }
 }
 
+// Highlight search terms using text nodes + <mark>, never innerHTML.
 function renderJd(text) {
-  $("p-jd").textContent = text;
+  const pre = $("p-jd");
+  const terms = state.query.trim().split(/\s+/).filter(Boolean)
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!terms.length) { pre.textContent = text; return; }
+  const re = new RegExp(`(${terms.join("|")})`, "gi");
+  pre.replaceChildren(...text.split(re).map((part, i) => (i % 2 ? el("mark", {}, part) : document.createTextNode(part))));
+  const first = pre.querySelector("mark");
+  if (first) first.scrollIntoView({ block: "center" });
 }
 
 function closePanel() {
@@ -215,6 +243,10 @@ async function undoDelete() {
   }
 }
 
+$("search").addEventListener("input", onSearchInput);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $("search").focus(); }
+});
 $("p-close").addEventListener("click", closePanel);
 $("p-delete").addEventListener("click", deleteOpen);
 $("toast-undo").addEventListener("click", undoDelete);

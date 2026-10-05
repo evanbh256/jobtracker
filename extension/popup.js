@@ -4,6 +4,7 @@
 
 const SERVER = "http://127.0.0.1:8765";
 const QUEUE_KEY = "jobtracker.queue";
+const DECIDE_KEY = "jobtracker.needsDecision"; // queued captures the app flagged as possible reposts
 const FIELDS = ["company", "title", "location", "url", "source", "job_id", "posted_date", "jd_text"];
 const REQUIRED = new Set(["company", "title", "url", "jd_text"]);
 const $ = (id) => document.getElementById(id);
@@ -48,16 +49,58 @@ async function post(payload) {
   }
 }
 
+function readDecisions() {
+  try { return JSON.parse(localStorage.getItem(DECIDE_KEY) || "[]"); } catch (e) { return []; }
+}
+function writeDecisions(d) { localStorage.setItem(DECIDE_KEY, JSON.stringify(d)); }
+
 async function flushQueue() {
-  let q = readQueue();
+  const q = readQueue();
   const remaining = [];
+  const decisions = readDecisions();
+  let sent = 0;
   for (const item of q) {
     const r = await post(item);
-    if (r.offline) { remaining.push(item); continue; }
-    if (!r.ok) remaining.push(item); // 4xx: keep it, never drop a capture silently
+    if (r.offline || !r.ok) { remaining.push(item); continue; } // never drop a capture silently
+    if (r.data.result === "possible_repost") decisions.push({ payload: item, matches: r.data.matches });
+    else sent++;
   }
   writeQueue(remaining);
-  return q.length - remaining.length;
+  writeDecisions(decisions);
+  return sent;
+}
+
+// Show "possible repost of ..." and resolve with true (add anyway) or false (skip).
+function askRepost(payload, matches, queued) {
+  const box = $("repost");
+  const list = $("repost-list");
+  list.replaceChildren();
+  box.querySelector("strong").textContent = (queued ? `Queued capture "${payload.company} — ${payload.title}" ` : "") + "Possible repost of:";
+  for (const m of matches) {
+    const li = document.createElement("li");
+    li.textContent = `${m.company} — ${m.title} (applied ${m.date_applied}, ${m.status}; ${m.reason})`;
+    list.append(li);
+  }
+  box.hidden = false;
+  return new Promise((resolve) => {
+    const done = (v) => { box.hidden = true; $("add-anyway").onclick = $("skip").onclick = null; resolve(v); };
+    $("add-anyway").onclick = () => done(true);
+    $("skip").onclick = () => done(false);
+  });
+}
+
+async function resolveQueuedDecisions() {
+  let d = readDecisions();
+  while (d.length) {
+    const { payload, matches } = d[0];
+    const add = await askRepost(payload, matches, true);
+    if (add) {
+      const r = await post({ ...payload, force: true });
+      if (r.offline || !r.ok) { setStatus("Couldn't reach the app; will ask again next time.", "warn"); return; }
+    }
+    d = readDecisions().slice(1);
+    writeDecisions(d);
+  }
 }
 
 // ---------- extraction ----------
@@ -160,10 +203,21 @@ async function save(payload) {
   handleResult(r.data, payload);
 }
 
-function handleResult(data) {
+async function handleResult(data, payload) {
   if (data.result === "added") {
-    setStatus(`Logged: ${data.app.company} — ${data.app.title}`, "ok");
+    const flag = data.app.repost_of ? " (flagged as possible repost)" : "";
+    setStatus(`Logged: ${data.app.company} — ${data.app.title}${flag}`, "ok");
     form.hidden = true;
+    return;
+  }
+  if (data.result === "possible_repost") {
+    form.hidden = true;
+    setStatus("This looks like something you already logged.", "warn");
+    if (await askRepost(payload, data.matches, false)) {
+      save({ ...payload, force: true });
+    } else {
+      setStatus("Skipped. Nothing was logged.", "");
+    }
   }
 }
 
@@ -178,6 +232,7 @@ form.elements.jd_text.addEventListener("input", updateJdLen);
 (async function init() {
   writeQueue(readQueue());
   const sent = await flushQueue();
+  await resolveQueuedDecisions();
   try {
     const fields = await extractFromTab();
     showFields(fields);

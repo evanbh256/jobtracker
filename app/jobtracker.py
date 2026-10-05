@@ -12,6 +12,7 @@ Data dir resolution: --data, then JOBTRACKER_DATA env var, then
 """
 import argparse
 import csv
+import difflib
 import datetime as dt
 import json
 import os
@@ -23,7 +24,7 @@ import uuid
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 DEFAULT_PORT = 8765
@@ -35,6 +36,7 @@ FIELDS = [
 ]
 CHANGE_FIELDS = ["timestamp", "app_id", "field", "old", "new", "actor"]
 STATUSES = ["Applied", "Interview", "Offer", "Rejected", "Ghosted"]
+GHOST_AFTER_DAYS = 90
 EDITABLE = {"company", "title", "location", "url", "source", "job_id",
             "posted_date", "date_applied", "status", "notes"}
 
@@ -56,6 +58,64 @@ def today():
 def slug(text, maxlen=40):
     s = re.sub(r"[^A-Za-z0-9]+", "-", text or "").strip("-").lower()
     return s[:maxlen].strip("-") or "x"
+
+
+# ---- repost matching ----------------------------------------------------
+
+COMPANY_SUFFIXES = {"inc", "incorporated", "llc", "ltd", "limited", "corp", "corporation",
+                    "co", "company", "plc", "gmbh", "lp", "llp", "the", "group", "holdings"}
+TITLE_NOISE = re.compile(
+    r"\b(summer|fall|autumn|winter|spring|20\d\d|\d{4}\s*-\s*\d{2,4}|"
+    r"remote|hybrid|onsite|on-site|new grad)\b", re.I)
+
+
+def norm_company(s):
+    s = (s or "").lower().replace("&", " and ")
+    words = re.sub(r"[^a-z0-9]+", " ", s).split()
+    while words and words[-1] in COMPANY_SUFFIXES:
+        words.pop()
+    while words and words[0] == "the":
+        words.pop(0)
+    return " ".join(words)
+
+
+def norm_title(s):
+    s = TITLE_NOISE.sub(" ", (s or "").lower())
+    s = re.sub(r"\b(internship)\b", "intern", s)
+    return " ".join(re.sub(r"[^a-z0-9+#]+", " ", s).split())
+
+
+def norm_url(u):
+    u = (u or "").strip().lower()
+    u = re.sub(r"^https?://(www\.)?", "", u).split("#")[0]
+    return u.rstrip("/")
+
+
+def similar(a, b, threshold):
+    if not a or not b:
+        return False
+    return a == b or difflib.SequenceMatcher(None, a, b).ratio() >= threshold
+
+
+def find_reposts(cap, rows):
+    """Existing rows that look like the same posting as capture `cap`."""
+    c_co, c_ti = norm_company(cap.get("company")), norm_title(cap.get("title"))
+    c_url, c_id = norm_url(cap.get("url")), (cap.get("job_id") or "").strip().lower()
+    out = []
+    for r in rows:
+        r_co = norm_company(r["company"])
+        same_co = similar(c_co, r_co, 0.9)
+        if c_id and c_id == r["job_id"].strip().lower() and (same_co or cap.get("source") == r["source"]):
+            reason = "same job ID"
+        elif c_url and c_url == norm_url(r["url"]):
+            reason = "same URL"
+        elif same_co and similar(c_ti, norm_title(r["title"]), 0.9):
+            reason = "same company and title"
+        else:
+            continue
+        out.append({"id": r["id"], "company": r["company"], "title": r["title"],
+                    "date_applied": r["date_applied"], "status": r["status"], "reason": reason})
+    return out
 
 
 class Store:
@@ -119,7 +179,44 @@ class Store:
     # ---- operations ----------------------------------------------------
     def list(self):
         with self.lock:
+            self.sweep()
             return self._read_rows()
+
+    def sweep(self):
+        """Auto-Ghost: Applied for 90+ days moves to Ghosted, logged as actor 'auto'.
+
+        A card you explicitly put back into Applied is left alone."""
+        with self.lock:
+            rows = self._read_rows()
+            cutoff = self.today() - dt.timedelta(days=GHOST_AFTER_DAYS)
+            moved = []
+            for r in rows:
+                if r["status"] != "Applied" or r["status_changed_by"] == "user":
+                    continue
+                try:
+                    applied = dt.date.fromisoformat(r["date_applied"])
+                except ValueError:
+                    continue
+                if applied <= cutoff:
+                    r["status"], r["status_changed_by"], r["updated_at"] = "Ghosted", "auto", now_iso()
+                    moved.append(r["id"])
+            if moved:
+                self._write_rows(rows)
+                for app_id in moved:
+                    self._log(app_id, "status", "Applied", "Ghosted", "auto")
+            return moved
+
+    def search(self, q):
+        """Ids whose company/title/location/notes/JD contain every term (case-insensitive)."""
+        terms = [t for t in q.lower().split() if t]
+        hits = []
+        for r in self.list():
+            hay = " ".join([r["company"], r["title"], r["location"], r["notes"]]).lower()
+            if not all(t in hay for t in terms):
+                hay += " " + self.read_jd_row(r).lower()
+            if all(t in hay for t in terms):
+                hits.append(r["id"])
+        return hits
 
     def get(self, app_id):
         for r in self.list():
@@ -128,7 +225,9 @@ class Store:
         raise StoreError("not found", HTTPStatus.NOT_FOUND)
 
     def read_jd(self, app_id):
-        row = self.get(app_id)
+        return self.read_jd_row(self.get(app_id))
+
+    def read_jd_row(self, row):
         if not row["jd_file"]:
             return ""
         try:
@@ -138,20 +237,28 @@ class Store:
             return ""
 
     def add(self, data):
-        """Create an application from a capture payload. Returns the new row."""
+        """Create an application from a capture payload.
+
+        Returns {"result": "possible_repost", "matches": [...]} without writing
+        anything when it looks like an existing entry, unless data["force"].
+        Otherwise {"result": "added", "app": row}."""
         company = (data.get("company") or "").strip()
         title = (data.get("title") or "").strip()
         if not company and not title:
             raise StoreError("capture needs at least a company or a title")
         with self.lock:
             rows = self._read_rows()
+            matches = find_reposts(data, rows)
+            if matches and not data.get("force"):
+                return {"result": "possible_repost", "matches": matches}
             app_id = uuid.uuid4().hex[:10]
             applied = str(data.get("date_applied") or "").strip()
             if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", applied):
                 applied = self.today().isoformat()
             row = {k: "" for k in FIELDS}
-            for k in ("location", "url", "source", "job_id", "posted_date", "notes", "repost_of"):
+            for k in ("location", "url", "source", "job_id", "posted_date", "notes"):
                 row[k] = str(data.get(k) or "").strip()
+            row["repost_of"] = matches[0]["id"] if matches else ""
             row.update(id=app_id, company=company, title=title, date_applied=applied,
                        status="Applied", status_changed_by="capture", updated_at=now_iso())
             jd = data.get("jd_text") or ""
@@ -168,7 +275,9 @@ class Store:
                     os.remove(self._jd_abs(row["jd_file"]))
                 raise
             self._log(app_id, "created", "", f"{company} | {title}", "capture")
-            return row
+            if matches:
+                self._log(app_id, "repost_of", "", matches[0]["id"], "user")
+            return {"result": "added", "app": row}
 
     def update(self, app_id, changes, actor="user"):
         bad = set(changes) - EDITABLE
@@ -318,13 +427,17 @@ def make_handler(store, port):
             if method == "GET":
                 if path == "/api/health":
                     return 200, {"ok": True, "app": "jobtracker"}
+                if path == "/api/search":
+                    q = parse_qs(urlparse(self.path).query).get("q", [""])[0]
+                    return 200, {"ids": store.search(q)}
                 if path == "/api/apps":
                     return 200, {"apps": store.list(), "statuses": STATUSES}
                 if m and m.group(2):
                     return 200, {"text": store.read_jd(m.group(1))}
                 return self.static(path)
             if method == "POST" and path == "/api/capture":
-                return 201, {"result": "added", "app": store.add(self._json_body())}
+                res = store.add(self._json_body())
+                return (201 if res["result"] == "added" else 200), res
             if method == "POST" and path == "/api/restore":
                 return 201, {"app": store.restore(self._json_body())}
             if method == "PATCH" and m and not m.group(2):
@@ -368,6 +481,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         httpd, store = make_server(args.data, args.port)
+        store.sweep()
     except OSError as e:
         print(f"Could not listen on 127.0.0.1:{args.port} ({e}). Already running?")
         if args.open:
