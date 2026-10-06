@@ -40,7 +40,7 @@ header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -.01em
   margin-right: 8px; vertical-align: 1px; background: var(--c); }
 .col h2 span:last-child { color: var(--faint); font-weight: 500; }
 .col .cards { overflow-y: auto; min-height: 60px; flex: 1; padding: 2px; }
-.col.over { background: var(--accent-soft); outline: 1px dashed var(--accent); }
+.col.over, .col + .col.over { background: var(--accent-soft); outline: 1px dashed var(--accent); border-radius: 10px; }
 
 .card { background: var(--surface); border: 1px solid color-mix(in srgb, var(--c, var(--border)) 45%, var(--border));
   border-left: 3px solid var(--c, var(--border)); border-radius: 8px;

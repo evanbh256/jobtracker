@@ -409,6 +409,11 @@ def make_handler(store, port):
                 return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": repr(e)})
             if result is not None:
                 self._send(*result)
+            if getattr(self, "stop_after_reply", False):
+                # Only after the reply is written; stopping earlier could let the
+                # process exit before the caller hears back.
+                self.wfile.flush()
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
 
         def do_GET(self):
             self._dispatch("GET")
@@ -439,8 +444,7 @@ def make_handler(store, port):
                 res = store.add(self._json_body())
                 return (201 if res["result"] == "added" else 200), res
             if method == "POST" and path == "/api/shutdown":
-                # Respond first, then stop serve_forever from another thread.
-                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                self.stop_after_reply = True  # see _dispatch: reply first, then stop
                 return 200, {"ok": True, "stopping": True}
             if method == "POST" and path == "/api/restore":
                 return 201, {"app": store.restore(self._json_body())}
