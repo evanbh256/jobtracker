@@ -68,9 +68,37 @@ function onSearchInput() {
   }, 150);
 }
 
+// Whole days since the applied date, in local time.
+function daysSince(isoDate) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || "");
+  if (!m) return null;
+  const then = new Date(+m[1], +m[2] - 1, +m[3]);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((today - then) / 86400000);
+}
+
+function ageText(d) {
+  if (d === null) return "";
+  if (d <= 0) return "today";
+  return d === 1 ? "1 day ago" : `${d} days ago`;
+}
+
+function ageEl(app) {
+  const d = daysSince(app.date_applied);
+  // In Applied, turn amber as the 90-day auto-Ghost approaches.
+  const late = app.status === "Applied" && d !== null && d >= 60;
+  const title = app.status === "Applied" && d !== null
+    ? `Applied ${app.date_applied}. Auto-moves to Ghosted in ${Math.max(0, 90 - d)} day(s).`
+    : `Applied ${app.date_applied}`;
+  return el("span", { class: "age" + (late ? " late" : ""), title }, ageText(d));
+}
+
 function cardFor(app) {
   const card = el("div", { class: "card", draggable: "true", "data-id": app.id },
-    el("div", { class: "co" }, app.company || "(no company)"),
+    el("div", { class: "top" },
+      el("span", { class: "co" }, app.company || "(no company)"),
+      ageEl(app)),
     el("div", { class: "ti" }, app.title || "(no title)"),
     el("div", { class: "meta" },
       el("span", {}, app.location || ""),
