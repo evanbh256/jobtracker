@@ -107,7 +107,8 @@ async function resolveQueuedDecisions() {
 
 async function extractFromTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !/^https?:/.test(tab.url || "")) throw new Error("This page can't be read (not an http/https page).");
+  if (!tab || !/^https?:/.test(tab.url || "")) throw new Error("Open a job posting, then click the extension. (This tab isn't a web page.)");
+  if (/^https?:\/\/(localhost|127\.0\.0\.1):8765\//.test(tab.url)) throw new Error("This is the tracker board. Open a job posting to capture it.");
   const run = async (allFrames) => {
     const target = { tabId: tab.id, allFrames };
     await chrome.scripting.executeScript({ target, files: ["extract.js"] });
@@ -117,7 +118,12 @@ async function extractFromTab() {
     });
   };
   let results;
-  try { results = await run(true); } catch (e) { results = await run(false); }
+  try {
+    try { results = await run(true); } catch (e) { results = await run(false); }
+  } catch (e) {
+    if (/error page/i.test(e.message)) throw new Error("This tab is showing a browser error page (site didn't load). Reload it, then try again.");
+    throw e;
+  }
   results = results.map((r) => r.result).filter(Boolean);
   const top = results.find((r) => r.top) || results[0];
   if (!top) throw new Error("Nothing could be read from this page.");
@@ -253,8 +259,14 @@ function startApp() {
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendNativeMessage(HOST, { cmd: "start" }, (reply) => {
-        if (chrome.runtime.lastError) {
-          resolve({ ok: false, error: "Launcher not installed. Run install-launcher.bat once (see README)." });
+        const err = chrome.runtime.lastError;
+        if (err) {
+          const raw = err.message || String(err);
+          let hint = "";
+          if (/not found/i.test(raw)) hint = "Brave can't find the launcher registration. Run install-launcher.bat, then fully quit and reopen Brave.";
+          else if (/forbidden/i.test(raw)) hint = `The launcher doesn't allow this extension's ID (${chrome.runtime.id}). Run install-launcher.bat again.`;
+          else if (/exited|failed to start|communicating/i.test(raw)) hint = "The launcher started but crashed. Run install-launcher.bat; its self-test prints the error.";
+          resolve({ ok: false, error: `${hint ? hint + " " : ""}[${raw}]` });
         } else resolve(reply || { ok: false, error: "No reply from launcher." });
       });
     } catch (e) {

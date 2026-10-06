@@ -18,6 +18,27 @@ KEYS = [
 ]
 
 
+def self_test(bat):
+    """Run host.bat exactly like Brave does (framed JSON on stdin) and show the reply."""
+    import struct
+    import subprocess
+    msg = json.dumps({"cmd": "status"}).encode()
+    try:
+        p = subprocess.run(["cmd", "/c", bat], input=struct.pack("<I", len(msg)) + msg,
+                           capture_output=True, timeout=20)
+    except Exception as e:
+        print(f"SELF-TEST FAILED: could not run {bat}: {e!r}")
+        return
+    out = p.stdout
+    try:
+        (n,) = struct.unpack("<I", out[:4])
+        print("Self-test OK, launcher replied:", json.loads(out[4:4 + n]))
+    except Exception:
+        print("SELF-TEST FAILED. Launcher output was:")
+        print("  stdout:", out[:500])
+        print("  stderr:", p.stderr.decode(errors="replace")[:2000])
+
+
 def main():
     if os.name != "nt":
         sys.exit("This installer is for Windows.")
@@ -47,6 +68,10 @@ def main():
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, k) as key:
             winreg.SetValueEx(key, "", 0, winreg.REG_SZ, manifest)
     print(f"Launcher registered for extension {EXTENSION_ID}.")
+    for k in KEYS:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, k) as key:
+            print(f"  HKCU\\{k} -> {winreg.QueryValueEx(key, '')[0]}")
+    self_test(bat)
     print("Reload the extension in brave://extensions, then open its popup.")
 
 
