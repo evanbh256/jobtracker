@@ -18,3 +18,9 @@ button:disabled { opacity: .5; cursor: default; }
 .repost { padding: 8px; border: 1px solid #e2b203; background: #fff7d6; border-radius: 4px; margin-bottom: 6px; }
 .repost ul { margin: 4px 0; padding-left: 18px; }
 .queue { margin-top: 8px; font-size: 11px; color: #5e6c84; }
+.appbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; color: #5e6c84; }
+.appbar .spacer { flex: 1; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #c1c7d0; display: inline-block; }
+.dot.on { background: #22a06b; }
+.dot.off { background: #c9372c; }
+button.small { width: auto; margin: 0; padding: 3px 8px; font-size: 12px; font-weight: 500; }

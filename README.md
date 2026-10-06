@@ -43,6 +43,26 @@ it, also change the port in `extension/manifest.json` and `extension/popup.js`).
 
 After pulling new code, click the reload arrow on the extension card.
 
+### Let the extension start and stop the app (one-time)
+
+Double-click **`install-launcher.bat`**. It registers a small launcher
+(`native/host.py`) with Brave for this extension only (a per-user registry entry, no
+admin rights), then reload the extension.
+
+From then on you never need the `.bat` launcher:
+
+- Opening the popup starts the app in the background (no console window) if it isn't
+  running. The dot at the top shows its state.
+- **Open board** starts the app if needed and opens the board in a new tab.
+- **Stop app** shuts the app down.
+
+If you move the repo folder, run `install-launcher.bat` again. To remove the
+registration: `py -3 native\install.py --uninstall`.
+Background-run app output goes to `jobtracker-data\server.log`.
+
+The extension ID is pinned to `ljffoebffpkpgcmehjgdjopdjoiabfhf` (via `key` in
+`manifest.json`) so the launcher can allow exactly this extension.
+
 ## Using it
 
 1. Open a job posting (Greenhouse, Lever, Workday, Handshake, LinkedIn, iCIMS, Ashby,
@@ -131,7 +151,8 @@ and add a test.
   `localhost:<port>`/`127.0.0.1:<port>` (blocks DNS rebinding) and whose `Origin` is a
   website (blocks random pages from writing to your tracker). The extension's
   `chrome-extension://` origin and the board itself are allowed.
-- Extension permissions: `activeTab`, `scripting`, and host access to
+- Extension permissions: `activeTab`, `scripting`, `nativeMessaging` (only to talk
+  to the launcher, which accepts just "start" and "status"), and host access to
   `localhost:8765`/`127.0.0.1:8765` only. It can read a page only after you click its
   icon on that page.
 - Captured text is only ever rendered as text, never as HTML.

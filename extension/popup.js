@@ -189,10 +189,11 @@ function payloadFromForm() {
 
 async function save(payload) {
   $("save").disabled = true;
-  const r = await post(payload);
+  let r = await post(payload);
+  if (r.offline && (await ensureApp())) r = await post(payload);
   if (r.offline) {
     enqueue(payload);
-    setStatus("Tracker app isn't running. Capture saved locally and will be sent next time you open this popup with the app running.", "warn");
+    setStatus("Couldn't reach or start the app. Capture saved locally; it is sent the next time this popup opens and the app is running.", "warn");
     return;
   }
   if (!r.ok) {
@@ -229,17 +230,73 @@ form.addEventListener("submit", (e) => {
 });
 form.elements.jd_text.addEventListener("input", updateJdLen);
 
+// ---------- app lifecycle (start via native host, stop via HTTP) ----------
+
+const HOST = "com.jobtracker.launcher";
+
+async function appRunning() {
+  try {
+    const res = await fetch(`${SERVER}/api/health`, { cache: "no-store" });
+    return res.ok;
+  } catch (e) { return false; }
+}
+
+function setAppState(running, note) {
+  $("app-dot").className = "dot " + (running ? "on" : "off");
+  $("app-label").textContent = note || (running ? "App running" : "App stopped");
+  $("stop-app").hidden = !running;
+  $("start-app").hidden = running;
+}
+
+// Ask the native host to start the app. Resolves to {ok, error?}.
+function startApp() {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendNativeMessage(HOST, { cmd: "start" }, (reply) => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, error: "Launcher not installed. Run install-launcher.bat once (see README)." });
+        } else resolve(reply || { ok: false, error: "No reply from launcher." });
+      });
+    } catch (e) {
+      resolve({ ok: false, error: e.message });
+    }
+  });
+}
+
+async function ensureApp() {
+  if (await appRunning()) { setAppState(true); return true; }
+  setAppState(false, "Starting app…");
+  const r = await startApp();
+  const up = r.ok && (await appRunning());
+  setAppState(up, up ? "App started" : "App not running");
+  if (!up) $("app-error").textContent = r.error || "App did not start.";
+  $("app-error").hidden = up;
+  return up;
+}
+
+$("start-app").addEventListener("click", ensureApp);
+$("stop-app").addEventListener("click", async () => {
+  try { await fetch(`${SERVER}/api/shutdown`, { method: "POST" }); } catch (e) { /* already down */ }
+  setTimeout(async () => setAppState(await appRunning()), 400);
+});
+$("open-board").addEventListener("click", async () => {
+  if (await ensureApp()) chrome.tabs.create({ url: "http://localhost:8765/" });
+});
+
 (async function init() {
   writeQueue(readQueue());
-  const sent = await flushQueue();
-  await resolveQueuedDecisions();
-  try {
-    const fields = await extractFromTab();
+  // Start extraction right away; it doesn't need the app.
+  const extraction = extractFromTab().then((f) => ({ f }), (e) => ({ e }));
+  const up = await ensureApp();
+  const sent = up ? await flushQueue() : 0;
+  if (up) await resolveQueuedDecisions();
+  const { f: fields, e: err } = await extraction;
+  if (err) {
+    setStatus(err.message, "bad");
+  } else {
     showFields(fields);
     const flagged = form.querySelectorAll("label.low, label.empty").length;
     setStatus(flagged ? `Check the ${flagged} highlighted field(s), then log.` : "Looks good. Log it?", flagged ? "warn" : "ok");
-  } catch (e) {
-    setStatus(e.message, "bad");
   }
   if (sent) setStatus(`${$("status").textContent}  (Sent ${sent} queued capture(s).)`, $("status").className.replace("status ", ""));
 })();

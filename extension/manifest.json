@@ -1,11 +1,28 @@
 {
   "manifest_version": 3,
   "name": "Job Tracker Capture",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "One-click logging of job applications to your local Job Tracker. Talks only to localhost.",
-  "action": { "default_popup": "popup.html", "default_title": "Log this application" },
-  "permissions": ["activeTab", "scripting"],
-  "host_permissions": ["http://localhost:8765/*", "http://127.0.0.1:8765/*"],
-  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://localhost:8765 http://127.0.0.1:8765" },
-  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr9EFZQS69W2kbXBNAnosfg169dBRSxG8o9YGZ6nx0IAPjElnY5JrE6KKIaHGvDDtrMl5UzociSoIdjoTfOgl9HoQ13rNvoaKzVp1Y4rxZgrHYFn5jlHZaaf37kbNTmRaJT2VNpXel7iRU5wT+AyxK5qcQEyGNRj+JSezvh3Cz3y9bHEyRD/NO8YmcAzMp4L1bGWkcmpU/wJDAmmXTAGMm11A0qHW2RDOUqWm+zAnNcUQbj5b+hmP8jZ/D/oojnmLR+NcXW0ZldFu2CJroHB7BX7M1w01ofuubtE/qfKmWxe2P0Kun2kKlgCFb5+bKlaJ/VEsXiCl566OK+jjM55X3wIDAQAB",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Log this application"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "http://localhost:8765/*",
+    "http://127.0.0.1:8765/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://localhost:8765 http://127.0.0.1:8765"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }

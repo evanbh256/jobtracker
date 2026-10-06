@@ -5,6 +5,14 @@
 <link rel="stylesheet" href="popup.css">
 </head>
 <body>
+<div class="appbar">
+  <span id="app-dot" class="dot"></span><span id="app-label">Checking app…</span>
+  <span class="spacer"></span>
+  <button id="open-board" class="small secondary" type="button">Open board</button>
+  <button id="start-app" class="small secondary" type="button" hidden>Start app</button>
+  <button id="stop-app" class="small secondary" type="button" hidden>Stop app</button>
+</div>
+<div id="app-error" class="status bad" hidden></div>
 <div id="status" class="status">Reading page…</div>
 <div id="repost" class="repost" hidden>
   <strong>Possible repost of:</strong>

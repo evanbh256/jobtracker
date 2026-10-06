@@ -438,6 +438,10 @@ def make_handler(store, port):
             if method == "POST" and path == "/api/capture":
                 res = store.add(self._json_body())
                 return (201 if res["result"] == "added" else 200), res
+            if method == "POST" and path == "/api/shutdown":
+                # Respond first, then stop serve_forever from another thread.
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                return 200, {"ok": True, "stopping": True}
             if method == "POST" and path == "/api/restore":
                 return 201, {"app": store.restore(self._json_body())}
             if method == "PATCH" and m and not m.group(2):
@@ -495,6 +499,8 @@ def main(argv=None):
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
+    httpd.server_close()
+    print("jobtracker stopped.")
     return 0
 
 

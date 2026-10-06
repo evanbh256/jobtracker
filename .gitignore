@@ -11,3 +11,6 @@ node_modules/
 __pycache__/
 *.pyc
 .pytest_cache/
+native/host.bat
+native/com.jobtracker.launcher.json
+*.pem
