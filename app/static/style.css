@@ -23,24 +23,29 @@ header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -.01em
 #search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .err { color: var(--danger); font-size: 12px; }
 
-#board { display: flex; gap: 20px; padding: 20px 24px; overflow-x: auto; align-items: flex-start; }
+#board { display: flex; gap: 0 20px; padding: 20px 24px; overflow-x: auto; align-items: stretch;
+  height: calc(100vh - 63px); }
 .col { flex: 1 1 0; min-width: 220px; max-width: 320px; display: flex; flex-direction: column;
-  max-height: calc(100vh - 100px); border-radius: 10px; transition: background .15s; }
+  border-radius: 10px; transition: background .15s; }
 .col h2 { display: flex; align-items: center; gap: 8px; margin: 0; padding: 4px 4px 12px;
   font-size: 12px; font-weight: 600; color: var(--muted); }
+/* Each column sets --c; the dot and the cards inside pick it up. */
+.col { --c: var(--s-ghosted); }
+.col[data-status="Applied"] { --c: var(--s-applied); }
+.col[data-status="Interview"] { --c: var(--s-interview); }
+.col[data-status="Offer"] { --c: var(--s-offer); }
+.col[data-status="Rejected"] { --c: var(--s-rejected); }
+.col + .col { border-left: 1px solid var(--border); padding-left: 20px; border-radius: 0; }
 .col h2 span:first-child::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-  margin-right: 8px; vertical-align: 1px; background: var(--s-ghosted); }
-.col[data-status="Applied"] h2 span:first-child::before { background: var(--s-applied); }
-.col[data-status="Interview"] h2 span:first-child::before { background: var(--s-interview); }
-.col[data-status="Offer"] h2 span:first-child::before { background: var(--s-offer); }
-.col[data-status="Rejected"] h2 span:first-child::before { background: var(--s-rejected); }
+  margin-right: 8px; vertical-align: 1px; background: var(--c); }
 .col h2 span:last-child { color: var(--faint); font-weight: 500; }
 .col .cards { overflow-y: auto; min-height: 60px; flex: 1; padding: 2px; }
 .col.over { background: var(--accent-soft); outline: 1px dashed var(--accent); }
 
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+.card { background: var(--surface); border: 1px solid color-mix(in srgb, var(--c, var(--border)) 45%, var(--border));
+  border-left: 3px solid var(--c, var(--border)); border-radius: 8px;
   padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: border-color .12s, background .12s; }
-.card:hover { border-color: #3a3d44; background: var(--surface-2); }
+.card:hover { border-color: var(--c, #3a3d44); background: var(--surface-2); }
 .card.dragging { opacity: .35; }
 .card .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .card .co { font-size: 12px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -48,6 +53,7 @@ header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -.01em
 .card .age.late { color: var(--warn); }
 .card .ti { font-weight: 500; margin: 2px 0 6px; }
 .card .meta { display: flex; justify-content: space-between; gap: 8px; color: var(--faint); font-size: 11.5px; }
+.card .meta span:last-child { white-space: nowrap; }
 .badge { display: inline-block; margin: 8px 4px 0 0; padding: 1px 7px; border-radius: 999px; font-size: 11px;
   color: var(--warn); background: rgba(224,176,74,.12); }
 .badge.auto { color: var(--muted); background: var(--surface-2); }
