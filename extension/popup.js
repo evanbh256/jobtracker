@@ -309,6 +309,10 @@ form.addEventListener("submit", (e) => {
   save(p);
 });
 form.elements.jd_text.addEventListener("input", updateJdLen);
+// The title is a textarea so long titles wrap on the card; Enter still logs.
+form.elements.title.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); form.requestSubmit(); }
+});
 
 // ---------- app lifecycle (start via native host, stop via HTTP) ----------
 

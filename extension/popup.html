@@ -13,26 +13,34 @@
   <button id="stop-app" class="small secondary" type="button" hidden>Stop app</button>
 </div>
 <div id="app-error" class="status bad" hidden></div>
-<div id="status" class="status">Reading page…</div>
 <div id="repost" class="repost" hidden>
   <strong>Possible repost of:</strong>
   <ul id="repost-list"></ul>
   <div class="row"><button id="add-anyway">Add anyway</button><button id="skip" class="secondary">Skip</button></div>
 </div>
 <form id="form" hidden autocomplete="off">
-  <label data-f="company">Company<input name="company"></label>
-  <label data-f="title">Title<input name="title"></label>
-  <label data-f="location">Location<input name="location"></label>
-  <label data-f="url">URL<input name="url"></label>
-  <div class="two">
-    <label data-f="source">Source<input name="source"></label>
-    <label data-f="job_id">Job ID<input name="job_id"></label>
+  <!-- The card as it will appear in the board's Applied column; edit it in place. -->
+  <section class="card" aria-label="New card for the Applied column">
+    <div class="card-top">
+      <label data-f="company" class="on-card co">Company<input name="company" placeholder="Company"></label>
+      <span class="age">today</span>
+    </div>
+    <label data-f="title" class="on-card ti">Title<textarea name="title" rows="1" placeholder="Job title"></textarea></label>
+    <label data-f="location" class="on-card lo">Location<input name="location" placeholder="Location"></label>
+  </section>
+  <div class="details">
+    <label data-f="url">URL<input name="url"></label>
+    <div class="two">
+      <label data-f="source">Source<input name="source"></label>
+      <label data-f="job_id">Job ID<input name="job_id"></label>
+    </div>
+    <label data-f="posted_date">Posted<input name="posted_date"></label>
+    <label data-f="jd_text">Job description <span id="jd-len"></span><textarea name="jd_text" rows="3"></textarea></label>
   </div>
-  <label data-f="posted_date">Posted<input name="posted_date"></label>
-  <label data-f="jd_text">Job description <span id="jd-len"></span><textarea name="jd_text" rows="4"></textarea></label>
-  <button id="save" type="submit">Log application</button>
-  <div class="hint">Edits are kept if you close this popup. <a href="#" id="reset">Reset</a></div>
+  <button id="save" type="submit">Log to Applied</button>
+  <div class="hint">Your edits stay if you close this popup. <a href="#" id="reset">Reset</a></div>
 </form>
+<div id="status" class="status">Reading page…</div>
 <div id="queue" class="queue" hidden></div>
 <script src="popup.js"></script>
 </body>

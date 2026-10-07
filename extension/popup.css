@@ -1,46 +1,81 @@
 [hidden] { display: none !important; }
-:root { color-scheme: dark; --bg: #17181b; --surface: #1e2024; --border: #2a2c31; --text: #e8e9eb; --muted: #8b8f98;
-  --faint: #5c6069; --accent: #4c8dff; --accent-soft: rgba(76,141,255,.16); --warn: #e0b04a; --danger: #ef6a5e; --ok: #4cc38a; }
+:root { color-scheme: dark; --bg: #000; --surface: #17181b; --surface-2: #1e2024; --border: #2a2c31; --ink: #0b0b0c;
+  --text: #e8e9eb; --muted: #8b8f98; --faint: #5c6069; --accent: #4c8dff; --warn: #e0b04a; --danger: #ef6a5e; --ok: #4cc38a;
+  --font: "Segoe UI Variable Display", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, monospace; }
 * { box-sizing: border-box; }
-body { width: 380px; margin: 0; padding: 12px 14px 14px; background: var(--bg); color: var(--text);
-  font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+body { width: 380px; margin: 0; padding: 12px; background: var(--bg); color: var(--text);
+  font: 13px/1.4 var(--font); -webkit-font-smoothing: antialiased; }
+:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
-.appbar { display: flex; align-items: center; gap: 6px; padding-bottom: 10px; margin-bottom: 10px;
-  border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+/* App bar */
+.appbar { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; font-size: 13px; }
 .appbar .spacer { flex: 1; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); display: inline-block; margin-right: 2px; }
-.dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(76,195,138,.15); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); display: inline-block; margin: 0 4px 0 2px; }
+.dot.on { background: var(--ok); }
 .dot.off { background: var(--danger); }
 
-label { display: block; margin: 7px 0; font-size: 11px; color: var(--muted); }
-label .why { color: var(--warn); margin-left: 6px; }
-label.empty .why { color: var(--danger); }
-input, textarea { display: block; width: 100%; margin-top: 3px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
-  background: var(--surface); color: var(--text); font: 13px "Segoe UI", system-ui, sans-serif; outline: none; }
-input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-textarea { font-size: 11.5px; color: var(--muted); resize: vertical; }
-label.low input, label.low textarea { border-color: rgba(224,176,74,.6); }
-label.empty input, label.empty textarea { border-color: rgba(239,106,94,.6); }
+/* Shared field styles (the details block) */
+label { display: block; margin: 0 0 12px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+label .why { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--warn); color: var(--ink);
+  font-size: 10px; text-transform: none; letter-spacing: 0; }
+label.empty .why { background: var(--danger); }
+input, textarea { display: block; width: 100%; margin-top: 4px; padding: 7px 12px; border: 1.5px solid transparent; border-radius: 10px;
+  background: var(--surface-2); color: var(--text); font: 13px var(--font); outline: none; }
+input:focus, textarea:focus { border-color: var(--accent); }
+textarea { font-size: 12px; line-height: 1.45; color: var(--muted); resize: vertical; scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
+label.low input, label.low textarea { border-color: var(--warn); }
+label.empty input, label.empty textarea { border-color: var(--danger); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-#jd-len { color: var(--faint); }
+#jd-len { color: var(--faint); font-family: var(--mono); text-transform: none; letter-spacing: 0; }
 
-button { width: 100%; margin-top: 10px; padding: 9px; border: 0; border-radius: 7px; background: var(--accent); color: #fff;
-  font: 600 13px "Segoe UI", system-ui, sans-serif; cursor: pointer; }
-button:hover { filter: brightness(1.08); }
-button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); font-weight: 500; }
-button.secondary:hover { border-color: #3a3d44; filter: none; }
-button.small { width: auto; margin: 0; padding: 4px 9px; font-size: 11.5px; border-radius: 6px; }
+/* The card: same block as the board's Applied column, edited in place */
+.card { background: var(--accent); color: var(--ink); border-radius: 16px; padding: 14px 16px 12px; }
+.card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
+.card .age { flex-shrink: 0; padding-top: 3px; font: 500 11.5px var(--font); }
+.on-card { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 0; color: var(--ink); letter-spacing: 0; text-transform: none; }
+.on-card input, .on-card textarea { flex: 1; min-width: 0; width: auto; margin: 0; padding: 2px 0; border: 0; border-bottom: 1.5px solid transparent; border-radius: 0;
+  background: none; color: var(--ink); }
+.on-card input::placeholder, .on-card textarea::placeholder { color: rgba(11,11,12,.45); }
+.on-card input:hover, .on-card textarea:hover { border-bottom-color: rgba(11,11,12,.3); }
+.on-card input:focus, .on-card textarea:focus { border-bottom-color: var(--ink); }
+.on-card.low input, .on-card.low textarea { border-bottom: 1.5px dashed var(--ink); }
+.on-card.empty input, .on-card.empty textarea { border-bottom: 1.5px dashed var(--ink); }
+.on-card .why { order: 2; flex-shrink: 0; margin: 4px 0 0; white-space: nowrap; background: var(--ink); color: var(--warn); font-size: 10px; }
+.on-card.empty .why { background: var(--ink); color: var(--danger); }
+.co { flex: 1; min-width: 0; }
+.co input { font: 500 11.5px var(--font); text-transform: uppercase; letter-spacing: .05em; }
+.ti textarea { font: 500 20px/1.15 var(--font); letter-spacing: -.02em; padding: 4px 0 4px; resize: none; overflow: hidden;
+  field-sizing: content; min-height: 0; }
+.lo { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,.35); }
+.lo input { font: 12px var(--font); }
+
+/* Details: the quiet block below the card */
+.details { margin-top: 10px; padding: 14px 14px 4px; border-radius: 16px; background: var(--surface); }
+
+/* Buttons */
+button { width: 100%; margin-top: 10px; padding: 11px; border: 0; border-radius: 999px; background: var(--text); color: var(--ink);
+  font: 500 14px var(--font); cursor: pointer; }
+button:hover { background: #fff; }
+button.secondary { background: transparent; color: var(--text); border: 1.5px solid var(--text); }
+button.secondary:hover { background: var(--text); color: var(--ink); }
+button.small { width: auto; margin: 0; padding: 4px 12px; font-size: 12px; }
 button:disabled { opacity: .45; cursor: default; }
 .row { display: flex; gap: 8px; }
 
-.status { padding: 8px 10px; border-radius: 7px; margin-bottom: 8px; font-size: 12px; background: var(--surface); color: var(--muted); }
-.status.ok { color: var(--ok); background: rgba(76,195,138,.1); }
-.status.warn { color: var(--warn); background: rgba(224,176,74,.1); }
-.status.bad { color: var(--danger); background: rgba(239,106,94,.1); }
-.repost { padding: 10px; border: 1px solid rgba(224,176,74,.4); border-radius: 8px; margin-bottom: 8px; background: rgba(224,176,74,.06); }
-.repost strong { color: var(--warn); font-weight: 600; font-size: 12px; }
-.repost ul { margin: 6px 0 2px; padding-left: 18px; color: var(--muted); font-size: 12px; }
-.queue { margin-top: 10px; font-size: 11px; color: var(--faint); }
-.hint { margin-top: 8px; font-size: 11px; color: var(--faint); text-align: center; }
+/* Messages: solid blocks, colour carries the meaning */
+.status { margin-top: 10px; padding: 10px 14px; border-radius: 14px; font-size: 13px; font-weight: 500;
+  background: var(--surface); color: var(--muted); }
+.status.ok { background: var(--ok); color: var(--ink); }
+.status.warn { background: var(--warn); color: var(--ink); }
+.status.bad { background: var(--danger); color: var(--ink); }
+#app-error { margin: 0 0 8px; }
+.repost { padding: 14px; border-radius: 16px; margin-bottom: 8px; background: var(--warn); color: var(--ink); }
+.repost strong { font-weight: 600; font-size: 13px; }
+.repost ul { margin: 6px 0 4px; padding-left: 18px; font-size: 12.5px; }
+.repost button { background: var(--ink); color: var(--text); }
+.repost button.secondary { background: transparent; color: var(--ink); border-color: var(--ink); }
+.queue { margin-top: 8px; font: 11px var(--mono); color: var(--faint); }
+.hint { margin-top: 10px; font-size: 11.5px; color: var(--faint); text-align: center; }
 .hint a { color: var(--muted); }
-.hint a:hover { color: var(--accent); }
+.hint a:hover { color: var(--text); }
