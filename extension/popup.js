@@ -4,7 +4,11 @@
 
 const SERVER = "http://127.0.0.1:8765";
 const QUEUE_KEY = "jobtracker.queue";
-const DECIDE_KEY = "jobtracker.needsDecision"; // queued captures the app flagged as possible reposts
+const DECIDE_KEY = "jobtracker.needsDecision";
+const DRAFTS_KEY = "jobtracker.drafts"; // unsaved popup edits, per page
+const DRAFT_TTL_MS = 7 * 24 * 3600 * 1000;
+let pageKey = "";        // the tab's URL (no #hash): which page a draft belongs to
+let extracted = null;    // what the page gave us, for Reset // queued captures the app flagged as possible reposts
 const FIELDS = ["company", "title", "location", "url", "source", "job_id", "posted_date", "jd_text"];
 const REQUIRED = new Set(["company", "title", "url", "jd_text"]);
 const $ = (id) => document.getElementById(id);
@@ -103,12 +107,65 @@ async function resolveQueuedDecisions() {
   }
 }
 
+// ---------- drafts: keep your edits when the popup closes ----------
+// The popup is destroyed every time it loses focus, so edits are written to
+// localStorage as you type and put back the next time it opens on that page.
+
+function readDrafts() {
+  try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || "{}"); } catch (e) { return {}; }
+}
+function writeDrafts(d) {
+  try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(d)); } catch (e) { /* storage full or blocked */ }
+}
+function pruneDrafts() {
+  const d = readDrafts();
+  const now = Date.now();
+  for (const k of Object.keys(d)) if (!d[k] || now - d[k].saved_at > DRAFT_TTL_MS) delete d[k];
+  writeDrafts(d);
+}
+function saveDraft(name) {
+  if (!pageKey) return;
+  const d = readDrafts();
+  const draft = d[pageKey] || { values: {}, saved_at: 0 };
+  draft.values[name] = form.elements[name].value;
+  draft.saved_at = Date.now();
+  d[pageKey] = draft;
+  writeDrafts(d);
+}
+function clearDraft() {
+  if (!pageKey) return;
+  const d = readDrafts();
+  delete d[pageKey];
+  writeDrafts(d);
+}
+// Put saved edits back over the freshly extracted values. Returns how many.
+function restoreDraft() {
+  const draft = readDrafts()[pageKey];
+  if (!draft) return 0;
+  let n = 0;
+  for (const [name, value] of Object.entries(draft.values)) {
+    const input = form.elements[name];
+    if (!input || !FIELDS.includes(name)) continue;
+    input.value = value;
+    markEdited(name);
+    n++;
+  }
+  updateJdLen();
+  return n;
+}
+function markEdited(name) {
+  const label = form.querySelector(`label[data-f="${name}"]`);
+  label.classList.remove("low", "empty");
+  label.querySelector(".why")?.remove();
+}
+
 // ---------- extraction ----------
 
 async function extractFromTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !/^https?:/.test(tab.url || "")) throw new Error("Open a job posting, then click the extension. (This tab isn't a web page.)");
   if (/^https?:\/\/(localhost|127\.0\.0\.1):8765\//.test(tab.url)) throw new Error("This is the tracker board. Open a job posting to capture it.");
+  pageKey = tab.url.split("#")[0];
   const run = async (allFrames) => {
     const target = { tabId: tab.id, allFrames };
     await chrome.scripting.executeScript({ target, files: ["extract.js"] });
@@ -172,7 +229,6 @@ function showFields(fields) {
       span.textContent = why;
       label.insertBefore(span, input);
     }
-    input.addEventListener("input", () => { label.classList.remove("low", "empty"); label.querySelector(".why")?.remove(); }, { once: true });
   }
   updateJdLen();
   form.hidden = false;
@@ -199,6 +255,7 @@ async function save(payload) {
   if (r.offline && (await ensureApp())) r = await post(payload);
   if (r.offline) {
     enqueue(payload);
+    clearDraft();
     setStatus("Couldn't reach or start the app. Capture saved locally; it is sent the next time this popup opens and the app is running.", "warn");
     return;
   }
@@ -213,6 +270,7 @@ async function save(payload) {
 async function handleResult(data, payload) {
   if (data.result === "added") {
     const flag = data.app.repost_of ? " (flagged as possible repost)" : "";
+    clearDraft();
     setStatus(`Logged: ${data.app.company} — ${data.app.title}${flag}`, "ok");
     form.hidden = true;
     return;
@@ -223,10 +281,26 @@ async function handleResult(data, payload) {
     if (await askRepost(payload, data.matches, false)) {
       save({ ...payload, force: true });
     } else {
+      clearDraft();
       setStatus("Skipped. Nothing was logged.", "");
     }
   }
 }
+
+// One listener for all fields: clear the flag and save the draft on every keystroke.
+form.addEventListener("input", (e) => {
+  const name = e.target.name;
+  if (!FIELDS.includes(name)) return;
+  markEdited(name);
+  saveDraft(name);
+});
+
+$("reset").addEventListener("click", (e) => {
+  e.preventDefault();
+  clearDraft();
+  if (extracted) showFields(extracted);
+  setStatus("Edits discarded; showing what the page gave.", "");
+});
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -296,6 +370,7 @@ $("open-board").addEventListener("click", async () => {
 });
 
 (async function init() {
+  pruneDrafts();
   writeQueue(readQueue());
   // Start extraction right away; it doesn't need the app.
   const extraction = extractFromTab().then((f) => ({ f }), (e) => ({ e }));
@@ -306,9 +381,12 @@ $("open-board").addEventListener("click", async () => {
   if (err) {
     setStatus(err.message, "bad");
   } else {
+    extracted = fields;
     showFields(fields);
+    const restored = restoreDraft();
     const flagged = form.querySelectorAll("label.low, label.empty").length;
-    setStatus(flagged ? `Check the ${flagged} highlighted field(s), then log.` : "Looks good. Log it?", flagged ? "warn" : "ok");
+    if (restored) setStatus(`Your edits are back (${restored} field${restored > 1 ? "s" : ""}).` + (flagged ? ` ${flagged} field(s) still flagged.` : ""), flagged ? "warn" : "ok");
+    else setStatus(flagged ? `Check the ${flagged} highlighted field(s), then log.` : "Looks good. Log it?", flagged ? "warn" : "ok");
   }
   if (sent) setStatus(`${$("status").textContent}  (Sent ${sent} queued capture(s).)`, $("status").className.replace("status ", ""));
 })();

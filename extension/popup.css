@@ -41,3 +41,6 @@ button:disabled { opacity: .45; cursor: default; }
 .repost strong { color: var(--warn); font-weight: 600; font-size: 12px; }
 .repost ul { margin: 6px 0 2px; padding-left: 18px; color: var(--muted); font-size: 12px; }
 .queue { margin-top: 10px; font-size: 11px; color: var(--faint); }
+.hint { margin-top: 8px; font-size: 11px; color: var(--faint); text-align: center; }
+.hint a { color: var(--muted); }
+.hint a:hover { color: var(--accent); }
