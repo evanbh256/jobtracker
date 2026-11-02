@@ -339,13 +339,182 @@ class Store:
             return row
 
 
+# ---- leads (night-hunt agent CSV) ---------------------------------------
+
+LEAD_FIELDS = [
+    "date", "company", "title", "location", "job_link", "contact_name", "contact_school",
+    "contact_linkedin_url", "contact_email_or_blank", "draft_created", "draft_subject",
+    "notes", "reply_status", "reply_date", "followup_draft", "application_filled",
+]
+LEAD_EDITABLE = {"location", "job_link", "contact_name", "contact_school", "contact_linkedin_url",
+                 "contact_email_or_blank", "draft_created", "draft_subject", "notes",
+                 "reply_status", "reply_date", "followup_draft", "application_filled"}
+LEADS_FILE = "night-hunt-log.csv"
+REAL_JOB_LINK = re.compile(r"linkedin\.com/jobs/view/\d+", re.I)
+
+
+def lead_key(r):
+    """Stable id for a lead: the agent appends rows, so these four columns don't change."""
+    raw = "|".join((r.get(k) or "").strip().lower() for k in ("date", "company", "title", "location"))
+    return uuid.uuid5(uuid.NAMESPACE_URL, raw).hex[:12]
+
+
+class Leads:
+    """The agent's CSV, read fresh on every request (you replace the file after each run).
+
+    Edits made in the app are written straight into that CSV and also kept in
+    leads-edits.json. When a new agent CSV replaces the file, those edits are
+    re-applied and written back, unless the agent changed that same cell itself
+    (then the agent's newer value wins)."""
+
+    def __init__(self, data_dir, store):
+        self.dir = os.path.join(os.path.abspath(data_dir), "leads")
+        self.path = os.path.join(self.dir, LEADS_FILE)
+        self.edits_path = os.path.join(os.path.abspath(data_dir), "leads-edits.json")
+        self.store = store
+        self.lock = threading.RLock()
+        os.makedirs(self.dir, exist_ok=True)
+
+    def _read(self):
+        if not os.path.exists(self.path):
+            return None, []
+        with open(self.path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            header = reader.fieldnames or []
+            missing = [k for k in ("date", "company", "title") if k not in header]
+            if missing:
+                raise StoreError(f"{LEADS_FILE} is missing columns: {', '.join(missing)}")
+            rows = [{k: (r.get(k) or "") for k in header} for r in reader]
+        return header, [r for r in rows if any(v.strip() for v in r.values())]
+
+    def _write(self, header, rows):
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(rows)
+        try:
+            os.replace(tmp, self.path)
+        except PermissionError:
+            os.remove(tmp)
+            raise StoreError(f"{LEADS_FILE} is locked (open in Excel?). Close it and retry.",
+                             HTTPStatus.SERVICE_UNAVAILABLE)
+
+    def _edits(self):
+        try:
+            with open(self.edits_path, encoding="utf-8") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def _save_edits(self, edits):
+        tmp = self.edits_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(edits, f, indent=1)
+        os.replace(tmp, self.edits_path)
+
+    def _load(self):
+        """Read the CSV and re-apply app edits a fresh agent file may have lost."""
+        header, rows = self._read()
+        if header is None:
+            return None, []
+        edits, dirty = self._edits(), False
+        for r in rows:
+            for field, e in edits.get(lead_key(r), {}).items():
+                if field not in header:
+                    continue
+                if r[field] == e["value"]:
+                    continue
+                if r[field] == e["base"]:  # agent left the cell alone: our edit wins
+                    r[field], dirty = e["value"], True
+        if dirty:
+            self._write(header, rows)
+        return header, rows
+
+    def _flags(self, rows):
+        apps = self.store.list()
+        out = []
+        for i, r in enumerate(rows):
+            flags = []
+            link = r.get("job_link", "")
+            if not REAL_JOB_LINK.search(link):
+                flags.append({"kind": "bad_link", "text": "search link only, find the posting"})
+            co, ti = norm_company(r["company"]), norm_title(r["title"])
+            for j, o in enumerate(rows):
+                oti = norm_title(o["title"])
+                same_ti = similar(ti, oti, 0.8) or (ti and oti and (
+                    set(ti.split()) <= set(oti.split()) or set(oti.split()) <= set(ti.split())))
+                if j != i and same_ti and similar(co, norm_company(o["company"]), 0.9):
+                    flags.append({"kind": "duplicate",
+                                  "text": f"also logged {o['date']} ({o.get('location', '')})"})
+                    break
+            m = find_reposts({"company": r["company"], "title": r["title"],
+                              "url": link if REAL_JOB_LINK.search(link) else ""}, apps)
+            if m:
+                flags.append({"kind": "tracked", "app_id": m[0]["id"],
+                              "text": f"in tracker: {m[0]['status']} since {m[0]['date_applied']}"})
+            if r.get("draft_created", "").lower() == "yes" and r.get("reply_status", "none") in ("", "none"):
+                flags.append({"kind": "draft_ready", "text": "draft ready to send"})
+            out.append(flags)
+        return out
+
+    def list(self):
+        with self.lock:
+            header, rows = self._load()
+        if header is None:
+            return {"found": False, "path": self.path, "leads": []}
+        flags = self._flags(rows)
+        leads = [dict(r, key=lead_key(r), flags=f) for r, f in zip(rows, flags)]
+        return {"found": True, "path": self.path, "columns": header, "leads": leads,
+                "modified": dt.datetime.fromtimestamp(os.path.getmtime(self.path)).replace(microsecond=0).isoformat()}
+
+    def update(self, key, changes):
+        bad = set(changes) - LEAD_EDITABLE
+        if bad:
+            raise StoreError(f"not editable: {', '.join(sorted(bad))}")
+        with self.lock:
+            header, rows = self._load()
+            row = next((r for r in rows if lead_key(r) == key), None)
+            if row is None:
+                raise StoreError("no such lead", HTTPStatus.NOT_FOUND)
+            edits = self._edits()
+            mine = edits.setdefault(key, {})
+            for field, value in changes.items():
+                if field not in header:
+                    raise StoreError(f"{LEADS_FILE} has no {field} column")
+                value = str(value)
+                base = mine[field]["base"] if field in mine else row[field]
+                mine[field] = {"value": value, "base": base}
+                row[field] = value
+            self._write(header, rows)
+            self._save_edits(edits)
+            return dict(row, key=key)
+
+    def to_tracker(self, key, force=False):
+        """Log the lead as an application on the board and mark it filled in the CSV."""
+        lead = next((r for r in self.list()["leads"] if r["key"] == key), None)
+        if lead is None:
+            raise StoreError("no such lead", HTTPStatus.NOT_FOUND)
+        link = lead.get("job_link", "")
+        m = re.search(r"/jobs/view/(\d+)", link)
+        res = self.store.add({
+            "company": lead["company"], "title": lead["title"], "location": lead.get("location", ""),
+            "url": link, "source": "linkedin" if "linkedin.com" in link else "",
+            "job_id": m.group(1) if m else "", "notes": f"From night-hunt lead {lead['date']}",
+            "force": force})
+        if res["result"] == "added" and "application_filled" in lead:
+            self.update(key, {"application_filled": "yes"})
+        return res
+
+
 # ---- HTTP --------------------------------------------------------------
 
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
                 ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
 
 
-def make_handler(store, port):
+def make_handler(store, port, leads=None):
+    leads = leads or Leads(store.data_dir, store)
     allowed_hosts = {f"localhost:{port}", f"127.0.0.1:{port}"}
     allowed_origins = {f"http://localhost:{port}", f"http://127.0.0.1:{port}"}
 
@@ -429,6 +598,7 @@ def make_handler(store, port):
 
         def route(self, method, path):
             m = re.fullmatch(r"/api/apps/([0-9a-f]{10})(/jd)?", path)
+            lm = re.fullmatch(r"/api/leads/([0-9a-f]{12})(/track)?", path)
             if method == "GET":
                 if path == "/api/health":
                     return 200, {"ok": True, "app": "jobtracker"}
@@ -437,6 +607,10 @@ def make_handler(store, port):
                     return 200, {"ids": store.search(q)}
                 if path == "/api/apps":
                     return 200, {"apps": store.list(), "statuses": STATUSES}
+                if path == "/api/leads":
+                    return 200, leads.list()
+                if path == "/leads":
+                    return self.static("/leads.html")
                 if m and m.group(2):
                     return 200, {"text": store.read_jd(m.group(1))}
                 return self.static(path)
@@ -448,6 +622,11 @@ def make_handler(store, port):
                 return 200, {"ok": True, "stopping": True}
             if method == "POST" and path == "/api/restore":
                 return 201, {"app": store.restore(self._json_body())}
+            if method == "PATCH" and lm and not lm.group(2):
+                return 200, {"lead": leads.update(lm.group(1), self._json_body())}
+            if method == "POST" and lm and lm.group(2):
+                res = leads.to_tracker(lm.group(1), force=bool(self._json_body().get("force")))
+                return (201 if res["result"] == "added" else 200), res
             if method == "PATCH" and m and not m.group(2):
                 return 200, {"app": store.update(m.group(1), self._json_body())}
             if method == "DELETE" and m and not m.group(2):
@@ -496,7 +675,9 @@ def main(argv=None):
             webbrowser.open(f"http://localhost:{args.port}/")
         return 1
     url = f"http://localhost:{args.port}/"
-    print(f"jobtracker running at {url}\ndata: {store.data_dir}\nCtrl+C to stop.")
+    print(f"jobtracker running at {url}\ndata: {store.data_dir}\n"
+          f"leads: drop the agent CSV at {os.path.join(store.data_dir, 'leads', LEADS_FILE)}\n"
+          f"Ctrl+C to stop.")
     if args.open:
         webbrowser.open(url)
     try:

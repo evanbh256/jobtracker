@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leads · Job Tracker</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="leads-page">
+<header>
+  <nav><a href="/">Board</a><a href="/leads" class="on">Leads</a></nav>
+  <input id="search" type="search" placeholder="Filter company, title, contact…  ( / )">
+  <span id="count"></span>
+  <span id="src" class="src"></span>
+  <span id="err" class="err" hidden></span>
+</header>
+<div id="filters" class="filters"></div>
+<main id="leads"></main>
+<div id="toast" hidden><span id="toast-msg"></span> <button id="toast-undo" hidden></button></div>
+<script src="leads.js"></script>
+</body>
+</html>
