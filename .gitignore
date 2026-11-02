@@ -1,5 +1,6 @@
 # Application data never belongs in this repo.
 jobtracker-data/
+leads/
 data/
 *.csv
 jd/
