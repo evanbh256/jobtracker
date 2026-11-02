@@ -7,19 +7,21 @@ description in its own text file beside it. Listens on 127.0.0.1 only.
 Usage:
     python jobtracker.py [--data DIR] [--leads DIR] [--port 8765] [--open]
 
-Data dir resolution: --data, then JOBTRACKER_DATA env var, then
-%USERPROFILE%\\jobtracker-data (or ~/jobtracker-data).
+Data dir resolution: --data, then JOBTRACKER_DATA env var, then J:\\jobtracker-data
+(the shared folder; JOBTRACKER_SHARE changes J:\\).
 """
 import argparse
 import csv
 import difflib
 import datetime as dt
+import io
 import json
 import os
 import re
 import shutil
 import sys
 import threading
+import time
 import uuid
 import webbrowser
 from http import HTTPStatus
@@ -27,8 +29,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-# The agent CSV lives in <repo>/leads/ (git-ignored), next to the code.
-REPO_LEADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "leads")
+# Shared job-search folder on the laptop, mapped as J: over Tailscale. It holds the
+# agent's night-hunt-log.csv and the board's data (J:\jobtracker-data).
+SHARE_DIR = os.environ.get("JOBTRACKER_SHARE") or "J:\\"
+SHARE_HINT = "check that Tailscale is running and the laptop is on"
 DEFAULT_PORT = 8765
 
 FIELDS = [
@@ -362,20 +366,25 @@ def lead_key(r):
 
 
 class Leads:
-    """The agent's CSV, read fresh on every request (you replace the file after each run).
+    """The shared night-hunt-log.csv, read fresh on every request.
 
-    Edits made in the app are written straight into that CSV and also kept in
-    leads-edits.json. When a new agent CSV replaces the file, those edits are
-    re-applied and written back, unless the agent changed that same cell itself
-    (then the agent's newer value wins)."""
+    It is the single source of truth (the agent appends to it, Filebrowser and
+    Excel edit it), so it is only ever rewritten in place: never replaced via a
+    temp file, which would break the laptop's symlink and the file's
+    owner/permissions. The first write in each app run makes a backup."""
 
-    def __init__(self, data_dir, store, leads_dir=REPO_LEADS_DIR):
+    WRITE_TRIES, WRITE_WAIT = 10, 0.5  # ~5 s of retrying while Excel holds the file
+
+    def __init__(self, data_dir, store, leads_dir=SHARE_DIR):
         self.dir = os.path.abspath(leads_dir)
         self.path = os.path.join(self.dir, LEADS_FILE)
-        self.edits_path = os.path.join(os.path.abspath(data_dir), "leads-edits.json")
+        self.backup_dir = os.path.join(self.dir, "backups")
+        self.backed_up = False
         self.store = store
         self.lock = threading.RLock()
-        os.makedirs(self.dir, exist_ok=True)
+
+    def reachable(self):
+        return os.path.isdir(self.dir)
 
     def _read(self):
         if not os.path.exists(self.path):
@@ -389,49 +398,42 @@ class Leads:
             rows = [{k: (r.get(k) or "") for k in header} for r in reader]
         return header, [r for r in rows if any(v.strip() for v in r.values())]
 
+    def _backup_once(self):
+        if self.backed_up:
+            return
+        os.makedirs(self.backup_dir, exist_ok=True)
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        shutil.copyfile(self.path, os.path.join(self.backup_dir, f"night-hunt-log-{stamp}.csv"))
+        self.backed_up = True
+
     def _write(self, header, rows):
-        tmp = self.path + ".tmp"
-        with open(tmp, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
-            w.writeheader()
-            w.writerows(rows)
-        try:
-            os.replace(tmp, self.path)
-        except PermissionError:
-            os.remove(tmp)
-            raise StoreError(f"{LEADS_FILE} is locked (open in Excel?). Close it and retry.",
-                             HTTPStatus.SERVICE_UNAVAILABLE)
-
-    def _edits(self):
-        try:
-            with open(self.edits_path, encoding="utf-8") as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {}
-
-    def _save_edits(self, edits):
-        tmp = self.edits_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(edits, f, indent=1)
-        os.replace(tmp, self.edits_path)
+        """Rewrite the existing file in place, keeping its BOM and line endings."""
+        with open(self.path, "rb") as f:
+            raw = f.read()
+        bom = raw.startswith(b"\xef\xbb\xbf")
+        eol = "\r\n" if b"\r\n" in raw else "\n"
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=header, extrasaction="ignore", lineterminator=eol)
+        w.writeheader()
+        w.writerows(rows)
+        data = (b"\xef\xbb\xbf" if bom else b"") + buf.getvalue().encode("utf-8")
+        self._backup_once()
+        for attempt in range(self.WRITE_TRIES):
+            try:
+                with open(self.path, "r+b") as f:
+                    f.write(data)
+                    f.truncate()
+                return
+            except PermissionError:
+                if attempt + 1 < self.WRITE_TRIES:
+                    time.sleep(self.WRITE_WAIT)
+        raise StoreError(f"{LEADS_FILE} is locked (open in Excel?). Close it and retry.",
+                         HTTPStatus.SERVICE_UNAVAILABLE)
 
     def _load(self):
-        """Read the CSV and re-apply app edits a fresh agent file may have lost."""
-        header, rows = self._read()
-        if header is None:
-            return None, []
-        edits, dirty = self._edits(), False
-        for r in rows:
-            for field, e in edits.get(lead_key(r), {}).items():
-                if field not in header:
-                    continue
-                if r[field] == e["value"]:
-                    continue
-                if r[field] == e["base"]:  # agent left the cell alone: our edit wins
-                    r[field], dirty = e["value"], True
-        if dirty:
-            self._write(header, rows)
-        return header, rows
+        if not self.reachable():
+            raise StoreError(f"{self.dir} not reachable: {SHARE_HINT}.", HTTPStatus.SERVICE_UNAVAILABLE)
+        return self._read()
 
     def _flags(self, rows):
         apps = self.store.list()
@@ -461,13 +463,15 @@ class Leads:
         return out
 
     def list(self):
+        if not self.reachable():
+            return {"found": False, "reachable": False, "path": self.path, "hint": SHARE_HINT, "leads": []}
         with self.lock:
             header, rows = self._load()
         if header is None:
-            return {"found": False, "path": self.path, "leads": []}
+            return {"found": False, "reachable": True, "path": self.path, "leads": []}
         flags = self._flags(rows)
         leads = [dict(r, key=lead_key(r), flags=f) for r, f in zip(rows, flags)]
-        return {"found": True, "path": self.path, "columns": header, "leads": leads,
+        return {"found": True, "reachable": True, "path": self.path, "columns": header, "leads": leads,
                 "modified": dt.datetime.fromtimestamp(os.path.getmtime(self.path)).replace(microsecond=0).isoformat()}
 
     def update(self, key, changes):
@@ -479,17 +483,11 @@ class Leads:
             row = next((r for r in rows if lead_key(r) == key), None)
             if row is None:
                 raise StoreError("no such lead", HTTPStatus.NOT_FOUND)
-            edits = self._edits()
-            mine = edits.setdefault(key, {})
             for field, value in changes.items():
                 if field not in header:
                     raise StoreError(f"{LEADS_FILE} has no {field} column")
-                value = str(value)
-                base = mine[field]["base"] if field in mine else row[field]
-                mine[field] = {"value": value, "base": base}
-                row[field] = value
+                row[field] = str(value)
             self._write(header, rows)
-            self._save_edits(edits)
             return dict(row, key=key)
 
     def to_tracker(self, key, force=False):
@@ -649,14 +647,10 @@ def make_handler(store, port, leads=None):
 
 
 def default_data_dir():
-    env = os.environ.get("JOBTRACKER_DATA")
-    if env:
-        return env
-    home = os.environ.get("USERPROFILE") or os.path.expanduser("~")
-    return os.path.join(home, "jobtracker-data")
+    return os.environ.get("JOBTRACKER_DATA") or os.path.join(SHARE_DIR, "jobtracker-data")
 
 
-def make_server(data_dir, port=DEFAULT_PORT, today_fn=today, leads_dir=REPO_LEADS_DIR):
+def make_server(data_dir, port=DEFAULT_PORT, today_fn=today, leads_dir=SHARE_DIR):
     store = Store(data_dir, today_fn=today_fn)
     leads = Leads(data_dir, store, leads_dir)
     httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, port, leads))
@@ -668,10 +662,14 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="Local internship application tracker")
     p.add_argument("--data", default=default_data_dir(), help="data folder (CSV + jd/)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
-    p.add_argument("--leads", default=REPO_LEADS_DIR,
-                   help="folder holding the agent's night-hunt-log.csv (default: <repo>/leads)")
+    p.add_argument("--leads", default=SHARE_DIR,
+                   help="folder holding the agent's night-hunt-log.csv (default: J:\\)")
     p.add_argument("--open", action="store_true", help="open the board in the browser")
     args = p.parse_args(argv)
+    parent = os.path.dirname(os.path.abspath(args.data).rstrip("\\/")) or args.data
+    if not os.path.isdir(parent):
+        print(f"Data folder {args.data} is not reachable: {SHARE_HINT}, then start again.")
+        return 1
     try:
         httpd, store = make_server(args.data, args.port, leads_dir=args.leads)
         store.sweep()

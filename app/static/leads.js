@@ -50,20 +50,32 @@ async function load() {
     if (!data.found) {
       state.leads = [];
       $("src").textContent = "";
-      $("leads").replaceChildren(el("div", { class: "empty" },
-        el("strong", {}, "No agent CSV yet."), el("br"),
-        "Drop the night-hunt CSV at:", el("br"), el("code", {}, data.path), el("br"),
-        "then reload this page. Replace it after every run; edits you make here are kept."));
+      $("leads").replaceChildren(data.reachable === false
+        ? el("div", { class: "empty" }, el("strong", {}, "J: not reachable."), el("br"),
+            "Can't open ", el("code", {}, data.path), el("br"),
+            "Make sure Tailscale is running on this PC and the laptop is on, then click back into this tab.")
+        : el("div", { class: "empty" }, el("strong", {}, "No night-hunt-log.csv found."), el("br"),
+            "Expected it at ", el("code", {}, data.path)));
       $("count").textContent = "0 leads";
       return;
     }
-    state.leads = data.leads.slice().reverse(); // newest night first
+    // Newest night first. Dates come as 2026-10-31 or 11/2/2026; values are never rewritten.
+    state.leads = data.leads.map((l, i) => [l, i])
+      .sort((a, b) => dateKey(b[0].date) - dateKey(a[0].date) || b[1] - a[1]).map((x) => x[0]);
     $("src").textContent = "CSV updated " + data.modified.replace("T", " ");
     $("src").title = data.path;
   } catch (e) {
     showError("Can't load leads: " + e.message);
   }
   render();
+}
+
+function dateKey(s) {
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s || "");
+  if (m) return +m[1] * 10000 + +m[2] * 100 + +m[3];
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s || "");
+  if (m) return +m[3] * 10000 + +m[1] * 100 + +m[2];
+  return 0;
 }
 
 function visible() {

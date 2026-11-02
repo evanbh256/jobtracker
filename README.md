@@ -58,29 +58,34 @@ From then on you never need the `.bat` launcher:
 
 If you move the repo folder, run `install-launcher.bat` again. To remove the
 registration: `py -3 native\install.py --uninstall`.
-Background-run app output goes to `jobtracker-data\server.log`.
+Background-run app output goes to `%USERPROFILE%\jobtracker-data\server.log` (local, so it works when J: is down).
 
 The extension ID is pinned to `ljffoebffpkpgcmehjgdjopdjoiabfhf` (via `key` in
 `manifest.json`) so the launcher can allow exactly this extension.
 
-## Leads (night-hunt agent CSV)
+## Shared folder (J:) and the Leads page
 
-A second page, **Leads** (<http://localhost:8765/leads>, or the tab at the top), shows
-jobs your night-hunt agent found. Leads never appear on the board by themselves.
+Everything lives in the job-search folder on the laptop, mapped on this PC as **`J:`**
+over Tailscale:
 
-1. After each agent run, copy its CSV over `leads\night-hunt-log.csv` inside this
-   repo folder (the console prints the exact path; `--leads <folder>` changes it).
-   The folder is git-ignored, so the CSV is never committed.
-2. Open or refocus the Leads page. The file is re-read every time; no import step.
+- `J:\night-hunt-log.csv`: the agent's tracker, the one copy everyone edits.
+- `J:\jobtracker-data\`: the board's data (applications, job descriptions, trash).
+- `J:\backups\`: a copy of `night-hunt-log.csv` made before the app's first edit
+  each time it starts.
 
-Highlights: **Draft ready** (green, a draft exists and no reply logged),
-**No job link** (yellow, the agent saved a search link), **Duplicate** (purple, same
-company and program logged twice), **In tracker** (blue, already on the board).
+If `J:` isn't connected (Tailscale off, laptop asleep), the app won't start and says so.
+The background launcher's log stays local in `%USERPROFILE%\jobtracker-data\server.log`.
+`--data`, `--leads`, `JOBTRACKER_DATA` and `JOBTRACKER_SHARE` override the locations.
 
-Edit Applied / Draft / Reply / Reply date / Notes / Job link on the page. Edits are
-written into the CSV and also kept in `leads-edits.json`, so when you drop in the
-agent's next CSV they are re-applied. If the agent changed that same cell itself,
-the agent's value wins. **Add to board** creates an Applied card and sets
+**Leads** (<http://localhost:8765/leads>, tab at the top) shows `night-hunt-log.csv`,
+re-read every time you open or return to the tab. Highlights: **Draft ready** (green),
+**No job link** (yellow), **Duplicate** (purple), **In tracker** (blue).
+
+Edits on the page are written straight into the shared file, **in place**. It is never
+replaced by a new file, which would break the laptop's symlink and permissions. Values
+the app didn't edit (like `11/2/2026` dates) are left as they are. If Excel has the file
+open, the app retries for about 5 seconds, then asks you to close Excel; it never saves
+a copy anywhere else. **Add to board** creates an Applied card and sets
 `application_filled=yes`.
 
 ## Using it
@@ -131,7 +136,7 @@ full job description text. Matching words are highlighted in the open JD.
 
 ## Where the data lives
 
-Default: `%USERPROFILE%\jobtracker-data` (e.g. `C:\Users\you\jobtracker-data`).
+Default: `J:\jobtracker-data` (the shared folder; see above).
 Change it with `--data` or the `JOBTRACKER_DATA` environment variable.
 
 ```

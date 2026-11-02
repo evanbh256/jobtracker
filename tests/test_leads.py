@@ -15,7 +15,8 @@ class LeadsTest(ServerTest):
     def setUp(self):
         super().setUp()
         # Never touch the real <repo>/leads folder from tests.
-        self.leads_dir = os.path.join(self.tmp, "leads")
+        self.leads_dir = os.path.join(self.tmp, "share")
+        os.makedirs(self.leads_dir)
         self.httpd.RequestHandlerClass = jobtracker.make_handler(
             self.store, self.port, jobtracker.Leads(self.data, self.store, self.leads_dir))
 
@@ -35,7 +36,8 @@ class LeadsTest(ServerTest):
     def test_missing_file(self):
         body = self.leads()
         self.assertFalse(body["found"])
-        self.assertTrue(body["path"].endswith(os.path.join("leads", "night-hunt-log.csv")))
+        self.assertTrue(body["reachable"])
+        self.assertEqual(body["path"], os.path.join(self.leads_dir, "night-hunt-log.csv"))
 
     def test_reads_all_rows_and_flags(self):
         self.drop()
@@ -48,37 +50,59 @@ class LeadsTest(ServerTest):
         self.assertIn("duplicate", kinds(self.find("Tevora", "SOC")))
         self.assertIn("draft_ready", kinds(self.find("Example Corp")))
 
-    def test_edit_writes_csv_and_survives_replacement(self):
-        path = self.drop()
-        lead = self.find("Rivian")
-        s, _ = self.req("PATCH", f"/api/leads/{lead['key']}", {"reply_status": "replied", "reply_date": "2026-11-03"})
-        self.assertEqual(s, 200)
-        with open(path, newline="", encoding="utf-8-sig") as f:
-            row = next(r for r in csv.DictReader(f) if r["company"] == "Rivian")
-        self.assertEqual(row["reply_status"], "replied")
-        # Agent's next run overwrites the file with its own copy (plus a new row).
-        self.drop()
-        with open(path, "a", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(["2026-11-03", "NewCo", "Security Intern"] + [""] * 13)
-        self.assertEqual(self.find("Rivian")["reply_status"], "replied")
-        self.assertEqual(len(self.leads()["leads"]), 8)
-        with open(path, newline="", encoding="utf-8-sig") as f:
-            row = next(r for r in csv.DictReader(f) if r["company"] == "Rivian")
-        self.assertEqual(row["reply_status"], "replied")  # written back into the new file
+    def test_missing_share(self):
+        shutil.rmtree(self.leads_dir)
+        body = self.leads()
+        self.assertFalse(body["reachable"])
+        s, _ = self.req("PATCH", "/api/leads/0123456789ab", {"notes": "x"})
+        self.assertEqual(s, 503)
 
-    def test_agent_change_beats_old_edit(self):
+    def test_edit_rewrites_in_place_with_one_backup(self):
         path = self.drop()
-        lead = self.find("Rivian")
-        self.req("PATCH", f"/api/leads/{lead['key']}", {"notes": "mine"})
-        with open(FIXTURE, newline="", encoding="utf-8-sig") as f:
-            rows = list(csv.DictReader(f))
-        for r in rows:
-            if r["company"] == "Rivian":
-                r["notes"] = "agent found a contact"
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=list(rows[0]))
-            w.writeheader(); w.writerows(rows)
-        self.assertEqual(self.find("Rivian")["notes"], "agent found a contact")
+        before = os.stat(path)
+        with open(path, "rb") as f:
+            raw = f.read()
+        with open(path, "wb") as f:  # agent-style file: BOM + CRLF, mixed date formats
+            f.write(b"\xef\xbb\xbf" + raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+                    .replace(b"2026-11-01,UPS", b"11/1/2026,UPS"))
+        for status in ("replied", "declined"):
+            s, _ = self.req("PATCH", f"/api/leads/{self.find('Rivian')['key']}", {"reply_status": status})
+            self.assertEqual(s, 200)
+        after = os.stat(path)
+        self.assertEqual(before.st_ino, after.st_ino)  # same file, not replaced
+        with open(path, "rb") as f:
+            new = f.read()
+        self.assertTrue(new.startswith(b"\xef\xbb\xbf"))
+        self.assertIn(b"\r\n", new)
+        self.assertIn(b"11/1/2026,UPS", new)  # other values untouched
+        self.assertEqual(self.find("Rivian")["reply_status"], "declined")
+        backups = os.listdir(os.path.join(self.leads_dir, "backups"))
+        self.assertEqual(len(backups), 1)  # once per app run
+        self.assertNotIn(b"declined", open(os.path.join(self.leads_dir, "backups", backups[0]), "rb").read())
+        self.assertFalse([n for n in os.listdir(self.leads_dir) if n.endswith(".tmp")])
+
+    def test_locked_file_retries_then_errors(self):
+        self.drop()
+        leads = jobtracker.Leads(self.data, self.store, self.leads_dir)
+        leads.WRITE_TRIES, leads.WRITE_WAIT = 3, 0
+        real_open, calls = open, []
+
+        def locked(path, mode="r", *a, **k):
+            if "+" in mode:
+                calls.append(1)
+                raise PermissionError("locked")
+            return real_open(path, mode, *a, **k)
+        import builtins
+        builtins.open = locked
+        try:
+            key = jobtracker.lead_key({"date": "2026-10-31", "company": "Rivian",
+                                       "title": "Cybersecurity - Summer 2027 Internships",
+                                       "location": "Palo Alto, CA (on-site)"})
+            with self.assertRaises(jobtracker.StoreError):
+                leads.update(key, {"notes": "x"})
+        finally:
+            builtins.open = real_open
+        self.assertEqual(len(calls), 3)
 
     def test_rejects_non_editable(self):
         self.drop()
