@@ -63,6 +63,25 @@ Background-run app output goes to `jobtracker-data\server.log`.
 The extension ID is pinned to `ljffoebffpkpgcmehjgdjopdjoiabfhf` (via `key` in
 `manifest.json`) so the launcher can allow exactly this extension.
 
+## Leads (night-hunt agent CSV)
+
+A second page, **Leads** (<http://localhost:8765/leads>, or the tab at the top), shows
+jobs your night-hunt agent found. Leads never appear on the board by themselves.
+
+1. After each agent run, copy its CSV over
+   `jobtracker-data\leads\night-hunt-log.csv` (the console prints the exact path).
+2. Open or refocus the Leads page. The file is re-read every time; no import step.
+
+Highlights: **Draft ready** (green, a draft exists and no reply logged),
+**No job link** (yellow, the agent saved a search link), **Duplicate** (purple, same
+company and program logged twice), **In tracker** (blue, already on the board).
+
+Edit Applied / Draft / Reply / Reply date / Notes / Job link on the page. Edits are
+written into the CSV and also kept in `leads-edits.json`, so when you drop in the
+agent's next CSV they are re-applied. If the agent changed that same cell itself,
+the agent's value wins. **Add to board** creates an Applied card and sets
+`application_filled=yes`.
+
 ## Using it
 
 1. Open a job posting (Greenhouse, Lever, Workday, Handshake, LinkedIn, iCIMS, Ashby,
