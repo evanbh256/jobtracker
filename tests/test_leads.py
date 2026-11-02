@@ -6,14 +6,21 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
-from test_server import ServerTest  # noqa: E402
+from test_server import ServerTest, jobtracker  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "night-hunt-log.csv")
 
 
 class LeadsTest(ServerTest):
+    def setUp(self):
+        super().setUp()
+        # Never touch the real <repo>/leads folder from tests.
+        self.leads_dir = os.path.join(self.tmp, "leads")
+        self.httpd.RequestHandlerClass = jobtracker.make_handler(
+            self.store, self.port, jobtracker.Leads(self.data, self.store, self.leads_dir))
+
     def drop(self, src=FIXTURE):
-        dst = os.path.join(self.data, "leads", "night-hunt-log.csv")
+        dst = os.path.join(self.leads_dir, "night-hunt-log.csv")
         shutil.copy(src, dst)
         return dst
 

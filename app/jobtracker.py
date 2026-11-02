@@ -5,7 +5,7 @@ Single-file, stdlib-only server. Stores applications in a CSV and each job
 description in its own text file beside it. Listens on 127.0.0.1 only.
 
 Usage:
-    python jobtracker.py [--data DIR] [--port 8765] [--open]
+    python jobtracker.py [--data DIR] [--leads DIR] [--port 8765] [--open]
 
 Data dir resolution: --data, then JOBTRACKER_DATA env var, then
 %USERPROFILE%\\jobtracker-data (or ~/jobtracker-data).
@@ -27,6 +27,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+# The agent CSV lives in <repo>/leads/ (git-ignored), next to the code.
+REPO_LEADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "leads")
 DEFAULT_PORT = 8765
 
 FIELDS = [
@@ -367,8 +369,8 @@ class Leads:
     re-applied and written back, unless the agent changed that same cell itself
     (then the agent's newer value wins)."""
 
-    def __init__(self, data_dir, store):
-        self.dir = os.path.join(os.path.abspath(data_dir), "leads")
+    def __init__(self, data_dir, store, leads_dir=REPO_LEADS_DIR):
+        self.dir = os.path.abspath(leads_dir)
         self.path = os.path.join(self.dir, LEADS_FILE)
         self.edits_path = os.path.join(os.path.abspath(data_dir), "leads-edits.json")
         self.store = store
@@ -654,9 +656,11 @@ def default_data_dir():
     return os.path.join(home, "jobtracker-data")
 
 
-def make_server(data_dir, port=DEFAULT_PORT, today_fn=today):
+def make_server(data_dir, port=DEFAULT_PORT, today_fn=today, leads_dir=REPO_LEADS_DIR):
     store = Store(data_dir, today_fn=today_fn)
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, port))
+    leads = Leads(data_dir, store, leads_dir)
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, port, leads))
+    httpd.leads = leads
     return httpd, store
 
 
@@ -664,10 +668,12 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="Local internship application tracker")
     p.add_argument("--data", default=default_data_dir(), help="data folder (CSV + jd/)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.add_argument("--leads", default=REPO_LEADS_DIR,
+                   help="folder holding the agent's night-hunt-log.csv (default: <repo>/leads)")
     p.add_argument("--open", action="store_true", help="open the board in the browser")
     args = p.parse_args(argv)
     try:
-        httpd, store = make_server(args.data, args.port)
+        httpd, store = make_server(args.data, args.port, leads_dir=args.leads)
         store.sweep()
     except OSError as e:
         print(f"Could not listen on 127.0.0.1:{args.port} ({e}). Already running?")
@@ -676,7 +682,7 @@ def main(argv=None):
         return 1
     url = f"http://localhost:{args.port}/"
     print(f"jobtracker running at {url}\ndata: {store.data_dir}\n"
-          f"leads: drop the agent CSV at {os.path.join(store.data_dir, 'leads', LEADS_FILE)}\n"
+          f"leads: drop the agent CSV at {httpd.leads.path}\n"
           f"Ctrl+C to stop.")
     if args.open:
         webbrowser.open(url)

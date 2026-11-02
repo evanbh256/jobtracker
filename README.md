@@ -68,8 +68,9 @@ The extension ID is pinned to `ljffoebffpkpgcmehjgdjopdjoiabfhf` (via `key` in
 A second page, **Leads** (<http://localhost:8765/leads>, or the tab at the top), shows
 jobs your night-hunt agent found. Leads never appear on the board by themselves.
 
-1. After each agent run, copy its CSV over
-   `jobtracker-data\leads\night-hunt-log.csv` (the console prints the exact path).
+1. After each agent run, copy its CSV over `leads\night-hunt-log.csv` inside this
+   repo folder (the console prints the exact path; `--leads <folder>` changes it).
+   The folder is git-ignored, so the CSV is never committed.
 2. Open or refocus the Leads page. The file is re-read every time; no import step.
 
 Highlights: **Draft ready** (green, a draft exists and no reply logged),
