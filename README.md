@@ -58,22 +58,22 @@ From then on you never need the `.bat` launcher:
 
 If you move the repo folder, run `install-launcher.bat` again. To remove the
 registration: `py -3 native\install.py --uninstall`.
-Background-run app output goes to `%USERPROFILE%\jobtracker-data\server.log` (local, so it works when J: is down).
+Background-run app output goes to `%USERPROFILE%\jobtracker-data\server.log` (local, so it works when Z: is down).
 
 The extension ID is pinned to `ljffoebffpkpgcmehjgdjopdjoiabfhf` (via `key` in
 `manifest.json`) so the launcher can allow exactly this extension.
 
-## Shared folder (J:) and the Leads page
+## Shared folder (Z:\JobSearch) and the Leads page
 
-Everything lives in the job-search folder on the laptop, mapped on this PC as **`J:`**
+Everything lives in the job-search folder on the laptop, mapped on this PC at **`Z:\JobSearch`**
 over Tailscale:
 
-- `J:\night-hunt-log.csv`: the agent's tracker, the one copy everyone edits.
-- `J:\jobtracker-data\`: the board's data (applications, job descriptions, trash).
-- `J:\backups\`: a copy of `night-hunt-log.csv` made before the app's first edit
+- `Z:\JobSearch\night-hunt-log.csv`: the agent's tracker, the one copy everyone edits.
+- `Z:\JobSearch\jobtracker-data\`: the board's data (applications, job descriptions, trash).
+- `Z:\JobSearch\backups\`: a copy of `night-hunt-log.csv` made before the app's first edit
   each time it starts.
 
-If `J:` isn't connected (Tailscale off, laptop asleep), the app won't start and says so.
+If `Z:` isn't connected (Tailscale off, laptop asleep), the app won't start and says so.
 The background launcher's log stays local in `%USERPROFILE%\jobtracker-data\server.log`.
 `--data`, `--leads`, `JOBTRACKER_DATA` and `JOBTRACKER_SHARE` override the locations.
 
@@ -136,7 +136,7 @@ full job description text. Matching words are highlighted in the open JD.
 
 ## Where the data lives
 
-Default: `J:\jobtracker-data` (the shared folder; see above).
+Default: `Z:\JobSearch\jobtracker-data` (the shared folder; see above).
 Change it with `--data` or the `JOBTRACKER_DATA` environment variable.
 
 ```

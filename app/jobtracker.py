@@ -7,8 +7,8 @@ description in its own text file beside it. Listens on 127.0.0.1 only.
 Usage:
     python jobtracker.py [--data DIR] [--leads DIR] [--port 8765] [--open]
 
-Data dir resolution: --data, then JOBTRACKER_DATA env var, then J:\\jobtracker-data
-(the shared folder; JOBTRACKER_SHARE changes J:\\).
+Data dir resolution: --data, then JOBTRACKER_DATA env var, then Z:\\JobSearch\\jobtracker-data
+(the shared folder; JOBTRACKER_SHARE changes Z:\\JobSearch).
 """
 import argparse
 import csv
@@ -29,9 +29,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-# Shared job-search folder on the laptop, mapped as J: over Tailscale. It holds the
-# agent's night-hunt-log.csv and the board's data (J:\jobtracker-data).
-SHARE_DIR = os.environ.get("JOBTRACKER_SHARE") or "J:\\"
+# Shared job-search folder on the laptop, mapped as Z: (Z:\JobSearch) over Tailscale. It holds the
+# agent's night-hunt-log.csv and the board's data (Z:\JobSearch\jobtracker-data).
+SHARE_DIR = os.environ.get("JOBTRACKER_SHARE") or "Z:\\JobSearch"
 SHARE_HINT = "check that Tailscale is running and the laptop is on"
 DEFAULT_PORT = 8765
 
@@ -663,7 +663,7 @@ def main(argv=None):
     p.add_argument("--data", default=default_data_dir(), help="data folder (CSV + jd/)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.add_argument("--leads", default=SHARE_DIR,
-                   help="folder holding the agent's night-hunt-log.csv (default: J:\\)")
+                   help="folder holding the agent's night-hunt-log.csv (default: Z:\\JobSearch)")
     p.add_argument("--open", action="store_true", help="open the board in the browser")
     args = p.parse_args(argv)
     parent = os.path.dirname(os.path.abspath(args.data).rstrip("\\/")) or args.data
