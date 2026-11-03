@@ -51,7 +51,7 @@ async function load() {
       state.leads = [];
       $("src").textContent = "";
       $("leads").replaceChildren(data.reachable === false
-        ? el("div", { class: "empty" }, el("strong", {}, "J: not reachable."), el("br"),
+        ? el("div", { class: "empty" }, el("strong", {}, "Z:\\JobSearch not reachable."), el("br"),
             "Can't open ", el("code", {}, data.path), el("br"),
             "Make sure Tailscale is running on this PC and the laptop is on, then click back into this tab.")
         : el("div", { class: "empty" }, el("strong", {}, "No night-hunt-log.csv found."), el("br"),
