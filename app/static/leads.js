@@ -38,9 +38,11 @@ async function api(method, path, body) {
 
 function showError(msg) { $("err").textContent = msg || ""; $("err").hidden = !msg; }
 let toastTimer;
-function toast(msg) {
+function toast(msg, onUndo) {
   $("toast-msg").textContent = msg; $("toast").hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { $("toast").hidden = true; }, 3500);
+  const u = $("toast-undo");
+  u.hidden = !onUndo; u.textContent = "Undo"; u.onclick = onUndo || null;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { $("toast").hidden = true; }, onUndo ? 8000 : 3500);
 }
 
 async function load() {
@@ -116,6 +118,24 @@ async function save(lead, field, value, inputEl) {
   } catch (e) { showError("Save failed: " + e.message); }
 }
 
+let lastDeleted = null;
+async function removeLead(lead) {
+  if (!confirm(`Delete this lead from the shared CSV?\n\n${lead.company} — ${lead.title}\n\nYou can undo for a few seconds.`)) return;
+  try {
+    lastDeleted = await api("DELETE", `/api/leads/${lead.key}`);
+    toast(`Deleted ${lead.company}`, undoDelete);
+    load();
+  } catch (e) { showError("Delete failed: " + e.message); }
+}
+
+async function undoDelete() {
+  if (!lastDeleted) return;
+  const d = lastDeleted; lastDeleted = null;
+  $("toast").hidden = true;
+  try { await api("POST", "/api/leads/restore", d); load(); }
+  catch (e) { showError("Undo failed: " + e.message); }
+}
+
 async function track(lead, force) {
   try {
     const res = await api("POST", `/api/leads/${lead.key}/track`, force ? { force: true } : {});
@@ -167,7 +187,8 @@ function leadRow(l) {
         linkOk ? el("a", { class: "btn", href: l.job_link, target: "_blank", rel: "noopener noreferrer" }, "Open job ↗")
                : el("a", { class: "btn warn", href: l.job_link || "#", target: "_blank", rel: "noopener noreferrer" }, "Search ↗"),
         has(l, "tracked") ? el("a", { class: "btn ghost", href: "/" }, "On board")
-                          : el("button", { class: "btn", onclick: () => track(l) }, "Add to board"))));
+                          : el("button", { class: "btn", onclick: () => track(l) }, "Add to board")),
+      el("button", { class: "btn danger-outline", title: "Delete from the CSV", onclick: () => removeLead(l) }, "Delete")));
 }
 
 function render() {

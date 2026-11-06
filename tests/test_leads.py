@@ -104,6 +104,26 @@ class LeadsTest(ServerTest):
             builtins.open = real_open
         self.assertEqual(len(calls), 3)
 
+    def test_delete_and_undo(self):
+        path = self.drop()
+        before = os.stat(path).st_ino
+        lead = self.find("Tevora", "SOC")
+        s, res = self.req("DELETE", f"/api/leads/{lead['key']}")
+        self.assertEqual(s, 200)
+        self.assertEqual(os.stat(path).st_ino, before)  # in place
+        self.assertEqual(len(self.leads()["leads"]), 6)
+        with open(path, encoding="utf-8-sig") as f:
+            self.assertNotIn("Irvine, CA", f.read())
+        s, _ = self.req("POST", "/api/leads/restore", res)
+        self.assertEqual(s, 201)
+        names = [l["company"] + l["location"] for l in self.leads()["leads"]]
+        self.assertEqual(len(names), 7)
+        self.assertEqual(names[2], "TevoraIrvine, CA")  # back in its old spot
+        s, _ = self.req("POST", "/api/leads/restore", res)  # double undo is a no-op
+        self.assertEqual(len(self.leads()["leads"]), 7)
+        s, _ = self.req("DELETE", "/api/leads/0123456789ab")
+        self.assertEqual(s, 404)
+
     def test_rejects_non_editable(self):
         self.drop()
         lead = self.find("Rivian")
