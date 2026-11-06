@@ -490,6 +490,32 @@ class Leads:
             self._write(header, rows)
             return dict(row, key=key)
 
+    def delete(self, key):
+        """Remove one row from the shared CSV. Returns it with its position, for undo."""
+        with self.lock:
+            header, rows = self._load()
+            idx = next((i for i, r in enumerate(rows) if lead_key(r) == key), None)
+            if idx is None:
+                raise StoreError("no such lead", HTTPStatus.NOT_FOUND)
+            row = rows.pop(idx)
+            self._write(header, rows)
+            return {"row": row, "index": idx}
+
+    def restore(self, row, index):
+        """Put a deleted row back where it was (or at the end if the file changed)."""
+        with self.lock:
+            header, rows = self._load()
+            if not isinstance(row, dict) or not (row.get("company") or row.get("title")):
+                raise StoreError("bad row")
+            clean = {k: str(row.get(k) or "") for k in header}
+            key = lead_key(clean)
+            if any(lead_key(r) == key for r in rows):
+                return clean  # already back
+            index = index if isinstance(index, int) and 0 <= index <= len(rows) else len(rows)
+            rows.insert(index, clean)
+            self._write(header, rows)
+            return clean
+
     def to_tracker(self, key, force=False):
         """Log the lead as an application on the board and mark it filled in the CSV."""
         lead = next((r for r in self.list()["leads"] if r["key"] == key), None)
@@ -622,6 +648,11 @@ def make_handler(store, port, leads=None):
                 return 200, {"ok": True, "stopping": True}
             if method == "POST" and path == "/api/restore":
                 return 201, {"app": store.restore(self._json_body())}
+            if method == "DELETE" and lm and not lm.group(2):
+                return 200, leads.delete(lm.group(1))
+            if method == "POST" and path == "/api/leads/restore":
+                b = self._json_body()
+                return 201, {"lead": leads.restore(b.get("row"), b.get("index"))}
             if method == "PATCH" and lm and not lm.group(2):
                 return 200, {"lead": leads.update(lm.group(1), self._json_body())}
             if method == "POST" and lm and lm.group(2):

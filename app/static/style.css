@@ -156,3 +156,6 @@ header nav a:hover:not(.on) { border-color: var(--text); }
   .lead { grid-template-columns: 1fr; }
   header, .filters, #leads { padding-left: 16px; padding-right: 16px; }
 }
+.lead-side > .btn.danger-outline { display: block; width: 100%; margin-top: 8px; background: none;
+  border: 1.5px solid var(--danger); color: var(--danger); }
+.lead-side > .btn.danger-outline:hover { background: var(--danger); color: var(--ink); filter: none; }
